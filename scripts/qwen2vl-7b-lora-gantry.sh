@@ -23,7 +23,7 @@ CLUSTER='jupiter'
 
 gantry run \
     --description "${run_name}"\
-    --task-name "${run_name}"\
+    --task-name "${run_name}-noprompthints"\
     --allow-dirty \
     --host-networking \
     --workspace ai2/oe-data-model-based-cleanup \
