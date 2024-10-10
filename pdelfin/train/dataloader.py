@@ -211,6 +211,12 @@ def extract_openai_batch_response(example):
         first_choice = choices[0]
         message = first_choice.get("message", {})
         response = message.get("content", "")
+
+        try:
+            response = json.loads(response)["natural_text"]
+        except Exception:
+            pass
+
         finish_reason = first_choice.get("finish_reason", "")
 
     return {"custom_id": custom_id, "response": response, "finish_reason": finish_reason}
