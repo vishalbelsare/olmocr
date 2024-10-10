@@ -214,6 +214,10 @@ def extract_openai_batch_response(example):
 
         try:
             response = json.loads(response)["natural_text"]
+
+            # Model can return null, meaning no text was found
+            if response is None:
+                response = ""
         except Exception:
             pass
 
