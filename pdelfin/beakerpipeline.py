@@ -482,6 +482,7 @@ async def vllm_server_task(args, semaphore):
         model_cache_dir,
         "--port", str(BASE_SERVER_PORT),
         "--disable-log-requests",
+        "--uvicorn-log-level", "warning",
         "--served-model-name", "Qwen/Qwen2-VL-7B-Instruct",
     ]
     cmd.extend(mem_fraction_arg)
