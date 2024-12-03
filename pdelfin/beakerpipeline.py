@@ -412,19 +412,27 @@ async def sglang_server_task(args, semaphore):
             json.dump(config_data, cfout)
 
     # Check GPU memory, lower mem devices need a bit less KV cache space because the VLM takes additional memory
-    gpu_memory = torch.cuda.get_device_properties(0).total_memory / (1024**3)  # Convert to GB
-    mem_fraction_arg = ["--mem-fraction-static", "0.80"] if gpu_memory < 60 else []
+    # gpu_memory = torch.cuda.get_device_properties(0).total_memory / (1024**3)  # Convert to GB
+    # mem_fraction_arg = ["--mem-fraction-static", "0.80"] if gpu_memory < 60 else []
+
+    # cmd = [
+    #     "python3",
+    #     "-m", "sglang.launch_server",
+    #     "--model-path", model_cache_dir,
+    #     "--chat-template", args.model_chat_template,
+    #     # "--context-length", str(args.model_max_context),  # Commented out due to crashes
+    #     "--port", str(SGLANG_SERVER_PORT),
+    #     "--log-level-http", "warning",
+    # ]
+    # cmd.extend(mem_fraction_arg)
 
     cmd = [
-        "python3",
-        "-m", "sglang.launch_server",
-        "--model-path", model_cache_dir,
-        "--chat-template", args.model_chat_template,
-        # "--context-length", str(args.model_max_context),  # Commented out due to crashes
+        "vllm",
+        "serve",
+        model_cache_dir,
         "--port", str(SGLANG_SERVER_PORT),
-        "--log-level-http", "warning",
+        "--served-model-name", "Qwen/Qwen2-VL-7B-Instruct",
     ]
-    cmd.extend(mem_fraction_arg)
 
     proc = await asyncio.create_subprocess_exec(
         *cmd,
@@ -460,11 +468,11 @@ async def sglang_server_task(args, semaphore):
             server_printed_ready_message = True
             last_semaphore_release = time.time()
 
-        match = re.search(r'#running-req: (\d+)', line)
+        match = re.search(r'Running: (\d+)', line)
         if match:
             last_running_req = int(match.group(1))
 
-        match = re.search(r'#queue-req: (\d+)', line)
+        match = re.search(r'Pending: (\d+)', line)
         if match:
             last_queue_req = int(match.group(1))
             logger.info(f"sglang running req: {last_running_req} queue req: {last_queue_req}")
