@@ -45,8 +45,8 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 logger.propagate = False
 
-sglang_logger = logging.getLogger("sglang")
-sglang_logger.propagate = False
+vllm_logger = logging.getLogger("vllm")
+vllm_logger.propagate = False
 
 file_handler = logging.FileHandler('beakerpipeline-debug.log', mode='a')
 file_handler.setLevel(logging.DEBUG)
@@ -59,7 +59,7 @@ console_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(level
 # Add handlers to the logger
 logger.addHandler(file_handler)
 logger.addHandler(console_handler)
-sglang_logger.addHandler(file_handler)
+vllm_logger.addHandler(file_handler)
 
 # Quiet logs from pypdf
 logging.getLogger("pypdf").setLevel(logging.ERROR)
@@ -78,7 +78,7 @@ process_pool = ProcessPoolExecutor(max_workers=min(multiprocessing.cpu_count() /
 # Filter object, cached so it will only get loaded when/if you need it
 get_pdf_filter = cache(lambda: PdfFilter(languages_to_keep={Language.ENGLISH, None}, apply_download_spam_check=True, apply_form_check=True))
 
-SGLANG_SERVER_PORT = 30024
+BASE_SERVER_PORT = 30024
 
 @dataclass(frozen=True)
 class PageResult:
@@ -198,7 +198,7 @@ async def apost(url, json_data):
 
 
 async def process_page(args, worker_id: int, pdf_s3_path: str, pdf_local_path: str, page_num: int) -> PageResult:
-    COMPLETION_URL = f"http://localhost:{SGLANG_SERVER_PORT}/v1/chat/completions"
+    COMPLETION_URL = f"http://localhost:{BASE_SERVER_PORT}/v1/chat/completions"
     MAX_RETRIES = args.max_page_retries
     
     exponential_backoffs = 0
@@ -235,8 +235,8 @@ async def process_page(args, worker_id: int, pdf_s3_path: str, pdf_local_path: s
                 logger.info(f"Reducing anchor text len to {local_anchor_text_len} for {pdf_s3_path}-{page_num}")
                 raise ValueError(f"Response exceeded model_max_context, cannot use this response")
             
-            metrics.add_metrics(sglang_input_tokens=base_response_data["usage"].get("prompt_tokens", 0),
-                                sglang_output_tokens=base_response_data["usage"].get("completion_tokens", 0))
+            metrics.add_metrics(vllm_input_tokens=base_response_data["usage"].get("prompt_tokens", 0),
+                                vllm_output_tokens=base_response_data["usage"].get("completion_tokens", 0))
 
             model_response_json = json.loads(base_response_data["choices"][0]["message"]["content"])
             page_response = PageResponse(**model_response_json)
@@ -259,7 +259,7 @@ async def process_page(args, worker_id: int, pdf_s3_path: str, pdf_local_path: s
             logger.warning(f"Client error on attempt {attempt} for {pdf_s3_path}-{page_num}: {type(e)} {e}")
             
             # Now we want to do exponential backoff, and not count this as an actual page retry
-            # Page retrys are supposed to be for fixing bad results from the model, but actual requests to sglang 
+            # Page retrys are supposed to be for fixing bad results from the model, but actual requests to vllm 
             # are supposed to work. Probably this means that the server is just restarting
             sleep_delay = 10 * (2 ** exponential_backoffs)
             exponential_backoffs += 1
@@ -457,7 +457,7 @@ async def worker(args, work_queue: S3WorkQueue, semaphore, worker_id):
             semaphore.release()
 
 
-async def sglang_server_task(args, semaphore):
+async def vllm_server_task(args, semaphore):
     model_cache_dir = os.path.join(os.path.expanduser('~'), '.cache', 'pdelfin', 'model')
     download_directory(args.model, model_cache_dir)
 
@@ -474,16 +474,15 @@ async def sglang_server_task(args, semaphore):
 
     # Check GPU memory, lower mem devices need a bit less KV cache space because the VLM takes additional memory
     gpu_memory = torch.cuda.get_device_properties(0).total_memory / (1024**3)  # Convert to GB
-    mem_fraction_arg = ["--mem-fraction-static", "0.80"] if gpu_memory < 60 else []
+    mem_fraction_arg = ["--gpu-memory-utilization", "0.80"] if gpu_memory < 60 else []
 
     cmd = [
-        "python3",
-        "-m", "sglang.launch_server",
-        "--model-path", model_cache_dir,
-        "--chat-template", args.model_chat_template,
-        # "--context-length", str(args.model_max_context),  # Commented out due to crashes
-        "--port", str(SGLANG_SERVER_PORT),
-        "--log-level-http", "warning",
+        "vllm",
+        "serve",
+        model_cache_dir,
+        "--port", str(BASE_SERVER_PORT),
+        "--disable-log-requests",
+        "--served-model-name", "Qwen/Qwen2-VL-7B-Instruct",
     ]
     cmd.extend(mem_fraction_arg)
 
@@ -506,14 +505,14 @@ async def sglang_server_task(args, semaphore):
 
     async def process_line(line):
         nonlocal last_running_req, last_queue_req, last_semaphore_release, server_printed_ready_message
-        sglang_logger.info(line)
+        vllm_logger.info(line)
 
         if "Detected errors during sampling" in line:
             logger.error("Cannot continue, sampling errors detected, model is probably corrupt")
             sys.exit(1)
 
-        # TODO, need to trace down this issue in sglang itself, but it will otherwise cause the server to lock up
-        if "IndexError: list index out of range" in line:
+        # TODO, need to trace down this issue in vllm itself, but it will otherwise cause the server to lock up
+        if "IndexError" in line:
             logger.error("IndexError in model, restarting server")
             proc.terminate()
 
@@ -521,14 +520,14 @@ async def sglang_server_task(args, semaphore):
             server_printed_ready_message = True
             last_semaphore_release = time.time()
 
-        match = re.search(r'#running-req: (\d+)', line)
+        match = re.search(r'Running: (\d+)', line)
         if match:
             last_running_req = int(match.group(1))
 
-        match = re.search(r'#queue-req: (\d+)', line)
+        match = re.search(r'Pending: (\d+)', line)
         if match:
             last_queue_req = int(match.group(1))
-            logger.info(f"sglang running req: {last_running_req} queue req: {last_queue_req}")
+            logger.info(f"vllm running req: {last_running_req} queue req: {last_queue_req}")
 
     async def read_stream(stream):
         while True:
@@ -561,7 +560,7 @@ async def sglang_server_task(args, semaphore):
     try:
         await proc.wait()
     except asyncio.CancelledError:
-        logger.warning("Got cancellation for sglang_server_task, terminating server")
+        logger.warning("Got cancellation for vllm_server_task, terminating server")
         proc.terminate()
         raise
 
@@ -569,24 +568,24 @@ async def sglang_server_task(args, semaphore):
     await asyncio.gather(stdout_task, stderr_task, timeout_task, return_exceptions=True)
 
 
-async def sglang_server_host(args, semaphore):
+async def vllm_server_host(args, semaphore):
     MAX_RETRIES = 5
     retry = 0
 
     while retry < MAX_RETRIES:
-        await sglang_server_task(args, semaphore)
-        logger.warning("SGLang server task ended")
+        await vllm_server_task(args, semaphore)
+        logger.warning("Vllm server task ended")
         retry += 1
 
     if retry >= MAX_RETRIES:
-        logger.error(f"Ended up restarting the sglang server more than {retry} times, cancelling")
+        logger.error(f"Ended up restarting the server more than {retry} times, cancelling")
         sys.exit(1)
 
 
-async def sglang_server_ready():
+async def vllm_server_ready():
     max_attempts = 300
     delay_sec = 1
-    url = f'http://localhost:{SGLANG_SERVER_PORT}/v1/models'
+    url = f'http://localhost:{BASE_SERVER_PORT}/v1/models'
 
     for attempt in range(1, max_attempts + 1):
         try:
@@ -594,7 +593,7 @@ async def sglang_server_ready():
                 response = await session.get(url)
 
                 if response.status_code == 200:
-                    logger.info("sglang server is ready.")
+                    logger.info("vllm server is ready.")
                     return
                 else:
                     logger.info(f"Attempt {attempt}: Unexpected status code {response.status_code}")
@@ -603,7 +602,7 @@ async def sglang_server_ready():
 
         await asyncio.sleep(delay_sec)
 
-    raise Exception("sglang server did not become ready after waiting.")
+    raise Exception("vllm server did not become ready after waiting.")
 
 
 async def metrics_reporter(work_queue):
@@ -818,7 +817,6 @@ async def main():
                                   "gs://ai2-oe-data/jakep/experiments/qwen2vl-pdf/v1/models/jakep/Qwen_Qwen2-VL-7B-Instruct-e4ecf8-01JAH8GMWHTJ376S2N7ETXRXH4/checkpoint-9500/bf16/",
                                   "s3://ai2-oe-data/jakep/experiments/qwen2vl-pdf/v1/models/jakep/Qwen_Qwen2-VL-7B-Instruct-e4ecf8-01JAH8GMWHTJ376S2N7ETXRXH4/checkpoint-9500/bf16/"])
     parser.add_argument('--model_max_context', type=int, default="8192", help="Maximum context length that the model was fine tuned under")
-    parser.add_argument('--model_chat_template', type=str, default="qwen2-vl", help="Chat template to pass to sglang server")
     parser.add_argument('--target_longest_image_dim', type=int, help='Dimension on longest side to use for rendering the pdf pages', default=1024)
     parser.add_argument('--target_anchor_text_len', type=int, help='Maximum amount of anchor text to use (characters)', default=6000)
 
@@ -834,7 +832,7 @@ async def main():
 
     # setup the job to work in beaker environment, load secrets, adjust logging, etc.
     if "BEAKER_JOB_NAME" in os.environ:
-        sglang_logger.addHandler(console_handler)
+        vllm_logger.addHandler(console_handler)
         cred_path = os.path.join(os.path.expanduser('~'), '.aws', 'credentials')
         os.makedirs(os.path.dirname(cred_path), exist_ok=True)
         with open(cred_path, "w") as f:
@@ -925,9 +923,9 @@ async def main():
     # As soon as one worker is no longer saturating the gpu, the next one can start sending requests
     semaphore = asyncio.Semaphore(1)
 
-    sglang_server = asyncio.create_task(sglang_server_host(args, semaphore))
+    vllm_server = asyncio.create_task(vllm_server_host(args, semaphore))
 
-    await sglang_server_ready()
+    await vllm_server_ready()
 
     metrics_task = asyncio.create_task(metrics_reporter(work_queue))
 
@@ -943,7 +941,7 @@ async def main():
     # Wait for server to stop
     process_pool.shutdown(wait=False)
 
-    sglang_server.cancel()
+    vllm_server.cancel()
     metrics_task.cancel()
     logger.info("Work done")
 
@@ -951,9 +949,6 @@ async def main():
 if __name__ == "__main__":
     asyncio.run(main())
 
-    # TODO
-    # - Figure out simple repro case for new sglang livelock case with indexerrors
-    # - It seems another case of deadlocks is when many requests are sent/pending to sglang, ex. 3k+ or 4k+ requests, probably hitting some internal limit
-    # - aiohttp repro and bug report
-    # - Get a solid benchmark on the stream vs non stream approach
+    # TODO:
+    # - Speed things up by checking if a repetition is detected in the output
     
