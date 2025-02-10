@@ -34,7 +34,7 @@ class Comparison:
         return re.search(r"page[0-9]+_(\w+)\.md$", self.comparison_b_path).group(1)
 
 
-def process_single_pdf(pdf_path, all_mds, comparisons, segmenter_name="spacy"):
+def process_single_pdf(pdf_path, all_mds, comparisons, segmenter_name="spacy", force_comparison=None):
     """Process a single PDF and return its comparisons."""
     # Create resources inside the worker process
     s3_client = boto3.client("s3")
@@ -42,21 +42,24 @@ def process_single_pdf(pdf_path, all_mds, comparisons, segmenter_name="spacy"):
     aligner = HirschbergAligner(match_score=1, mismatch_score=-1, indel_score=-1)
     comparer = DocumentEditSimilarity(segmenter=segmenter, aligner=aligner)
 
-    pdf_comps = []
     result_comps = []
 
-    # Get all comparison files for this PDF
+    # Original behavior: collect all comparison files for this PDF.
+    pdf_comps = []
     for comp in comparisons:
         comp_path = pdf_path.replace(".pdf", f"_{comp}.md")
         if comp_path in all_mds:
             pdf_comps.append(comp_path)
 
-    # Generate all possible combinations
+    # Generate all possible combinations (randomizing order occasionally)
     for compa, compb in combinations(pdf_comps, 2):
         if random.choice([True, False]):
             compa, compb = compb, compa
 
-        # Get the text content
+        if force_comparison:
+            if not compa.endswith(f"_{force_comparison}.md") and not compb.endswith(f"_{force_comparison}.md"):
+                continue
+
         text_a = get_s3_bytes(s3_client, compa).decode("utf-8")
         text_b = get_s3_bytes(s3_client, compb).decode("utf-8")
 
@@ -96,7 +99,9 @@ def build_review_page(args, comparisons, index=0):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Generates comparison voting pages between different pairs of parses for a PDF.")
+    parser = argparse.ArgumentParser(
+        description="Generates comparison voting pages between different pairs of parses for a PDF."
+    )
     parser.add_argument("--name", default="review_page", help="What name to give to this evaluation/comparison")
     parser.add_argument(
         "--review_size",
@@ -110,7 +115,11 @@ if __name__ == "__main__":
         default=None,
         help="Maximum number of worker processes to use for parallel processing",
     )
-    parser.add_argument("--comparisons", default=["pdelf", "marker", "gotocr_format", "mineru"], help="Different variants to compare against")
+    parser.add_argument(
+        "--comparisons",
+        default=["pdelf", "marker", "gotocr_format", "mineru", "gpt4o"],
+        help="Different variants to compare against",
+    )
     parser.add_argument(
         "--num_copies",
         default=1,
@@ -118,7 +127,15 @@ if __name__ == "__main__":
         help="Number of reports to generate, labeled _0, _1, etc. if greater than 1",
     )
     parser.add_argument(
-        "s3_path", type=str, help="Path to the folder where you keep your data files, expecting to see *.md files in there along with *.png and *.pdf"
+        "--force_comparison",
+        type=str,
+        default=None,
+        help="Force one method to be included in every comparison (e.g., 'mineru')."
+    )
+    parser.add_argument(
+        "s3_path",
+        type=str,
+        help="Path to the folder where you keep your data files, expecting to see *.md files in there along with *.png and *.pdf",
     )
 
     args = parser.parse_args()
@@ -132,8 +149,13 @@ if __name__ == "__main__":
 
     all_comps = []
 
-    # Create a partial function with all the common arguments
-    process_pdf = functools.partial(process_single_pdf, all_mds=all_mds, comparisons=args.comparisons)
+    # Create a partial function with the common arguments, including the forced method (if any)
+    process_pdf = functools.partial(
+        process_single_pdf,
+        all_mds=all_mds,
+        comparisons=args.comparisons,
+        force_comparison=args.force_comparison,
+    )
 
     # Use ProcessPoolExecutor for parallel processing
     with ProcessPoolExecutor(max_workers=args.max_workers) as executor:
