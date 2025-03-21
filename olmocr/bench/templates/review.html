@@ -435,6 +435,21 @@
             background-color: #6c757d;
             color: white;
         }
+        
+        /* Context length control styles */
+        .context-length-control {
+            margin: 10px 0;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        
+        .context-length-control .btn-small {
+            padding: 2px 8px;
+            font-size: 0.85em;
+            background-color: #e9ecef;
+            color: #343a40;
+        }
     </style>
 </head>
 <body>
@@ -480,18 +495,6 @@
                 <h2>Tests ({{ tests|length }})</h2>
                 <button id="reject-all-btn" class="reject-all-btn">Reject All & Next <span class="kbd-shortcut">Q</span></button>
             </div>
-
-            <div class="add-test-buttons">
-                <button id="add-present-btn" class="add-test-btn add-present-btn">+Present</button>
-                <button id="add-absent-btn" class="add-test-btn add-absent-btn">+Absent</button>
-                <div id="add-test-form" class="add-test-form" style="display: none;">
-                    <textarea id="new-test-text" placeholder="Enter text to search for..."></textarea>
-                    <div class="add-test-controls">
-                        <button id="add-test-submit">Add</button>
-                        <button id="add-test-cancel">Cancel</button>
-                    </div>
-                </div>
-            </div>
             
             {% for test in tests %}
             <div class="test-item {% if test.checked == 'verified' %}status-approved{% elif test.checked == 'rejected' %}status-rejected{% endif %}" data-id="{{ test.id }}">
@@ -508,8 +511,21 @@
                     {% if test.type == 'present' or test.type == 'absent' %}
                         <div><strong>Text:</strong> <span class="editable" data-field="text" data-id="{{ test.id }}">{{ test.text }}</span></div>
                         <div><strong>Case Sensitive:</strong> {{ test.case_sensitive }}</div>
-                        {% if test.first_n %}<div><strong>First N:</strong> {{ test.first_n }}</div>{% endif %}
-                        {% if test.last_n %}<div><strong>Last N:</strong> {{ test.last_n }}</div>{% endif %}
+                        {% if test.type == 'absent' %}
+                            <div class="context-length-control">
+                                <strong>First N Characters:</strong>
+                                <button class="btn-small" onclick="updateContextLength('{{ test.pdf }}', '{{ test.id }}', 'first_n', -10)">-10</button>
+                                <span id="first-n-{{ test.id }}">{{ test.first_n if test.first_n is not none else 'None' }}</span>
+                                <button class="btn-small" onclick="updateContextLength('{{ test.pdf }}', '{{ test.id }}', 'first_n', 10)">+10</button>
+                            </div>
+                            <div class="context-length-control">
+                                <strong>Last N Characters:</strong>
+                                <button class="btn-small" onclick="updateContextLength('{{ test.pdf }}', '{{ test.id }}', 'last_n', -10)">-10</button>
+                                <span id="last-n-{{ test.id }}">{{ test.last_n if test.last_n is not none else 'None' }}</span>
+                                <button class="btn-small" onclick="updateContextLength('{{ test.pdf }}', '{{ test.id }}', 'last_n', 10)">+10</button>
+                            </div>
+                        {% elif test.first_n %}<div><strong>First N:</strong> {{ test.first_n }}</div>{% endif %}
+                        {% if test.type != 'absent' and test.last_n %}<div><strong>Last N:</strong> {{ test.last_n }}</div>{% endif %}
                     {% elif test.type == 'order' %}
                         <div><strong>Before:</strong> <span class="editable" data-field="before" data-id="{{ test.id }}">{{ test.before }}</span></div>
                         <div><strong>After:</strong> <span class="editable" data-field="after" data-id="{{ test.id }}">{{ test.after }}</span></div>
@@ -534,6 +550,18 @@
                 </div>
             </div>
             {% endfor %}
+            
+            <div class="add-test-buttons">
+                <button id="add-present-btn" class="add-test-btn add-present-btn">+Present</button>
+                <button id="add-absent-btn" class="add-test-btn add-absent-btn">+Absent</button>
+                <div id="add-test-form" class="add-test-form" style="display: none;">
+                    <textarea id="new-test-text" placeholder="Enter text to search for..."></textarea>
+                    <div class="add-test-controls">
+                        <button id="add-test-submit">Add</button>
+                        <button id="add-test-cancel">Cancel</button>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
     
@@ -949,6 +977,46 @@
             updateTestStatus(pdfName, testId, 'max_diffs', newValue);
         }
         
+        // Function to update context length (first_n or last_n) for absent tests
+        function updateContextLength(pdfName, testId, field, change) {
+            // Get current value
+            const elementId = field === 'first_n' ? `first-n-${testId}` : `last-n-${testId}`;
+            const currentElement = document.getElementById(elementId);
+            if (!currentElement) return;
+            
+            // Get current value, treating "None" as 0
+            let currentValue = currentElement.textContent;
+            if (currentValue === 'None' || currentValue === 'null') {
+                currentValue = 0;
+            } else {
+                currentValue = parseInt(currentValue, 10);
+            }
+            
+            // Send to server
+            fetch('/update_context_length', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    pdf: pdfName,
+                    id: testId,
+                    field: field,
+                    change: change
+                }),
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    // Update UI - display "None" if the value is 0
+                    currentElement.textContent = data.new_value === 0 ? 'None' : data.new_value;
+                }
+            })
+            .catch(error => {
+                console.error('Error updating context length:', error);
+            });
+        }
+        
         // Toggle edit mode for a field
         function toggleEditMode(testId) {
             const editables = document.querySelectorAll(`.editable[data-id="${testId}"]`);
@@ -1340,6 +1408,7 @@
                     const testItem = document.createElement('div');
                     testItem.className = 'test-item status-approved';
                     testItem.dataset.id = test.id;
+                    testItem.dataset.type = test.type; // Store the type for easier access
                     
                     // Create header
                     const header = document.createElement('div');
@@ -1471,6 +1540,79 @@
                     content.appendChild(textDiv);
                     content.appendChild(pageDiv);
                     content.appendChild(caseDiv);
+                    
+                    // Add context length controls for absent tests
+                    if (test.type === 'absent') {
+                        // First N control
+                        const firstNDiv = document.createElement('div');
+                        firstNDiv.className = 'context-length-control';
+                        
+                        const firstNStrong = document.createElement('strong');
+                        firstNStrong.textContent = 'First N Characters:';
+                        
+                        const firstNMinusBtn = document.createElement('button');
+                        firstNMinusBtn.className = 'btn-small';
+                        firstNMinusBtn.textContent = '-10';
+                        firstNMinusBtn.onclick = function() {
+                            updateContextLength(test.pdf, test.id, 'first_n', -10);
+                        };
+                        
+                        const firstNSpan = document.createElement('span');
+                        firstNSpan.id = `first-n-${test.id}`;
+                        firstNSpan.textContent = test.first_n != null ? test.first_n : 'None';
+                        
+                        const firstNPlusBtn = document.createElement('button');
+                        firstNPlusBtn.className = 'btn-small';
+                        firstNPlusBtn.textContent = '+10';
+                        firstNPlusBtn.onclick = function() {
+                            updateContextLength(test.pdf, test.id, 'first_n', 10);
+                        };
+                        
+                        firstNDiv.appendChild(firstNStrong);
+                        firstNDiv.appendChild(document.createTextNode(' '));
+                        firstNDiv.appendChild(firstNMinusBtn);
+                        firstNDiv.appendChild(document.createTextNode(' '));
+                        firstNDiv.appendChild(firstNSpan);
+                        firstNDiv.appendChild(document.createTextNode(' '));
+                        firstNDiv.appendChild(firstNPlusBtn);
+                        
+                        // Last N control
+                        const lastNDiv = document.createElement('div');
+                        lastNDiv.className = 'context-length-control';
+                        
+                        const lastNStrong = document.createElement('strong');
+                        lastNStrong.textContent = 'Last N Characters:';
+                        
+                        const lastNMinusBtn = document.createElement('button');
+                        lastNMinusBtn.className = 'btn-small';
+                        lastNMinusBtn.textContent = '-10';
+                        lastNMinusBtn.onclick = function() {
+                            updateContextLength(test.pdf, test.id, 'last_n', -10);
+                        };
+                        
+                        const lastNSpan = document.createElement('span');
+                        lastNSpan.id = `last-n-${test.id}`;
+                        lastNSpan.textContent = test.last_n != null ? test.last_n : 'None';
+                        
+                        const lastNPlusBtn = document.createElement('button');
+                        lastNPlusBtn.className = 'btn-small';
+                        lastNPlusBtn.textContent = '+10';
+                        lastNPlusBtn.onclick = function() {
+                            updateContextLength(test.pdf, test.id, 'last_n', 10);
+                        };
+                        
+                        lastNDiv.appendChild(lastNStrong);
+                        lastNDiv.appendChild(document.createTextNode(' '));
+                        lastNDiv.appendChild(lastNMinusBtn);
+                        lastNDiv.appendChild(document.createTextNode(' '));
+                        lastNDiv.appendChild(lastNSpan);
+                        lastNDiv.appendChild(document.createTextNode(' '));
+                        lastNDiv.appendChild(lastNPlusBtn);
+                        
+                        content.appendChild(firstNDiv);
+                        content.appendChild(lastNDiv);
+                    }
+                    
                     content.appendChild(diffDiv);
                     content.appendChild(statusDiv);
                     
@@ -1481,7 +1623,7 @@
                     const testsContainer = document.querySelector('.tests-panel');
                     const addTestButtons = document.querySelector('.add-test-buttons');
                     
-                    testsContainer.insertBefore(testItem, addTestButtons.nextSibling);
+                    testsContainer.insertBefore(testItem, addTestButtons);
                     
                     // Update testItems array and select the new test
                     testItems = Array.from(document.querySelectorAll('.test-item'));

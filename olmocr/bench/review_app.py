@@ -141,6 +141,45 @@ def update_test():
     return jsonify({"status": "success"})
 
 
+@app.route("/update_context_length", methods=["POST"])
+def update_context_length():
+    """API endpoint to update first_n or last_n for absent tests."""
+    global PDF_TESTS, DATASET_DIR, DATASET_FILE
+
+    data = request.json
+    pdf_name = data.get("pdf")
+    test_id = data.get("id")
+    field = data.get("field")  # 'first_n' or 'last_n'
+    change = data.get("change", 0)  # Amount to change by (positive or negative)
+
+    # Find and update the test
+    for test in PDF_TESTS.get(pdf_name, []):
+        if test.get("id") == test_id:
+            # Only allow this for absent tests
+            if test.get("type") != "absent":
+                return jsonify({"status": "error", "message": "Can only modify context length for absent tests"})
+            
+            # Get current value
+            current_value = test.get(field)
+            
+            # Initialize to 0 if None
+            if current_value is None:
+                current_value = 0
+                
+            # Update value (ensure it doesn't go below 0)
+            new_value = max(0, current_value + change)
+            
+            # Store as None if the value is 0
+            test[field] = None if new_value == 0 else new_value
+            
+            # Save the updated tests
+            save_dataset(DATASET_FILE)
+            
+            return jsonify({"status": "success", "new_value": new_value})
+
+    return jsonify({"status": "error", "message": "Test not found"})
+
+
 @app.route("/reject_all", methods=["POST"])
 def reject_all():
     """API endpoint to reject all tests for a PDF."""
@@ -208,6 +247,11 @@ def add_test():
         "max_diffs": 0,
         "checked": "verified",  # Manually added tests are verified by default
     }
+    
+    # Add first_n and last_n for absent tests
+    if test_type == "absent":
+        new_test["first_n"] = None
+        new_test["last_n"] = None
 
     # Add to test collection
     if pdf_name not in PDF_TESTS:
