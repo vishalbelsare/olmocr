@@ -3,6 +3,7 @@ import re
 import boto3
 import pypdf
 import argparse
+import concurrent.futures
 from typing import List, Tuple, Dict
 from botocore.exceptions import ClientError
 
@@ -132,12 +133,74 @@ def get_actual_s3_path(folder_name: str, file_id: str) -> str:
     return f"s3://ai2-s2-pdfs/{folder_name}/{file_id}.pdf"
 
 
-def process_file_list(file_list_path: str, output_dir: str) -> Dict[str, List[str]]:
+def process_single_file(processed_path: str, output_dir: str) -> Dict:
     """
-    Process a list of file paths, download the originals, and extract pages.
+    Process a single file path, download the original, and extract pages.
+    This function is designed to be used with concurrent.futures.
+    
+    Args:
+        processed_path: S3 path to process
+        output_dir: Directory to save downloaded and processed files
+    
+    Returns:
+        Dict with processing results for this file
+    """
+    result = {
+        'path': processed_path,
+        'status': 'parse_failed',
+        'output_path': None
+    }
+    
+    print(f"Processing: {processed_path}")
+    
+    try:
+        # Extract folder name, file ID and page number
+        try:
+            folder_name, file_id, page_num = extract_file_info_and_page(processed_path)
+        except ValueError as e:
+            print(f"  {str(e)}")
+            return result
+        
+        # Get the actual S3 path using folder-based mapping
+        actual_s3_path = get_actual_s3_path(folder_name, file_id)
+            
+        # Local paths
+        # Create a structure that mirrors the output path format
+        output_dir_struct = os.path.join(output_dir, os.path.dirname(processed_path.replace("s3://", "")))
+        original_basename = f"{folder_name}{file_id}.pdf"
+        processed_basename = f"{folder_name}{file_id}_page_{page_num}_processed.pdf"
+        
+        original_local_path = os.path.join(output_dir_struct, original_basename)
+        processed_local_path = os.path.join(output_dir_struct, processed_basename)
+        
+        # Download the original PDF
+        if download_pdf_from_s3(actual_s3_path, original_local_path):
+            # Extract the specified page
+            if extract_page_from_pdf(original_local_path, processed_local_path, page_num):
+                result['status'] = 'success'
+                result['output_path'] = processed_local_path
+                print(f"  Successfully processed: {processed_local_path}")
+            else:
+                result['status'] = 'extraction_failed'
+                print(f"  Failed to extract page {page_num}")
+        else:
+            result['status'] = 'download_failed'
+            print(f"  Failed to download {actual_s3_path}")
+    except Exception as e:
+        print(f"  Error processing {processed_path}: {str(e)}")
+    
+    return result
+
+
+def process_file_list(file_list_path: str, output_dir: str, max_workers: int = None) -> Dict[str, List[str]]:
+    """
+    Process a list of file paths in parallel using ThreadPoolExecutor.
+    
     Args:
         file_list_path: Path to a text file containing S3 paths
         output_dir: Directory to save downloaded and processed files
+        max_workers: Maximum number of worker threads (None = auto-determine)
+    
     Returns:
         Dict containing lists of successful and failed paths
     """
@@ -153,49 +216,31 @@ def process_file_list(file_list_path: str, output_dir: str) -> Dict[str, List[st
         paths = [line.strip() for line in f if line.strip()]
     
     total = len(paths)
-    for i, processed_path in enumerate(paths):
-        print(f"Processing {i+1}/{total}: {processed_path}")
+    print(f"Processing {total} files with {max_workers if max_workers else 'auto'} workers")
+    
+    # Process files in parallel
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Submit all tasks
+        future_to_path = {
+            executor.submit(process_single_file, path, output_dir): path
+            for path in paths
+        }
         
-        try:
-            # Extract folder name, file ID and page number
+        # Process results as they complete
+        for i, future in enumerate(concurrent.futures.as_completed(future_to_path)):
+            path = future_to_path[future]
             try:
-                folder_name, file_id, page_num = extract_file_info_and_page(processed_path)
-                print(f"  Folder: {folder_name}")
-                print(f"  File ID: {file_id}")
-                print(f"  Page to extract: {page_num}")
-            except ValueError as e:
-                print(f"  {str(e)}")
-                results['parse_failed'].append(processed_path)
-                continue
-            
-            # Get the actual S3 path using folder-based mapping
-            actual_s3_path = get_actual_s3_path(folder_name, file_id)
-            print(f"  Actual S3 path: {actual_s3_path}")
+                result = future.result()
+                status = result['status']
+                results[status].append(path)
                 
-            # Local paths
-            # Create a structure that mirrors the output path format
-            output_dir_struct = os.path.join(output_dir, os.path.dirname(processed_path.replace("s3://", "")))
-            original_basename = f"{folder_name}{file_id}.pdf"
-            processed_basename = f"{folder_name}{file_id}_page_{page_num}_processed.pdf"
-            
-            original_local_path = os.path.join(output_dir_struct, original_basename)
-            processed_local_path = os.path.join(output_dir_struct, processed_basename)
-            
-            # Download the original PDF
-            if download_pdf_from_s3(actual_s3_path, original_local_path):
-                # Extract the specified page
-                if extract_page_from_pdf(original_local_path, processed_local_path, page_num):
-                    results['success'].append(processed_local_path)
-                    print(f"  Successfully processed: {processed_local_path}")
-                else:
-                    results['extraction_failed'].append(processed_path)
-                    print(f"  Failed to extract page {page_num}")
-            else:
-                results['download_failed'].append(processed_path)
-                print(f"  Failed to download {actual_s3_path}")
-        except Exception as e:
-            print(f"  Error processing {processed_path}: {str(e)}")
-            results['parse_failed'].append(processed_path)
+                # Periodic progress update
+                if (i + 1) % 10 == 0 or (i + 1) == total:
+                    print(f"Progress: {i+1}/{total} files processed")
+                    
+            except Exception as e:
+                print(f"Unexpected error processing {path}: {str(e)}")
+                results['parse_failed'].append(path)
     
     return results
 
@@ -247,6 +292,8 @@ def main():
     parser = argparse.ArgumentParser(description="Download PDFs from S3 and extract specific pages")
     parser.add_argument("file_list", help="Path to a text file containing S3 paths")
     parser.add_argument("--output-dir", default="./output", help="Directory to save downloaded and processed files")
+    parser.add_argument("--max-workers", type=int, default=None, 
+                        help="Maximum number of worker threads (default: auto-determine based on CPU count)")
     parser.add_argument("--continue-on-error", action="store_true", help="Continue processing if errors occur")
     args = parser.parse_args()
     
@@ -254,7 +301,7 @@ def main():
     os.makedirs(args.output_dir, exist_ok=True)
     
     # Process the file list
-    results = process_file_list(args.file_list, args.output_dir)
+    results = process_file_list(args.file_list, args.output_dir, args.max_workers)
     
     # Write report
     write_report(results, args.output_dir)

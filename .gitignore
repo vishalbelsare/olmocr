@@ -18,6 +18,8 @@ gpt4otestset_output/*
 pdfs/*
 olmOCR-bench/*
 table_data*/
+out_head_foot/*
+backtracked_links/*
 /*.html
 scoreelo.csv
 debug.log

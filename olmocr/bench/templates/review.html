@@ -376,6 +376,65 @@
             border-radius: 5px;
             font-weight: bold;
         }
+        
+        /* Add test styles */
+        .add-test-buttons {
+            margin-bottom: 20px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            align-items: center;
+        }
+        
+        .add-test-btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            color: white;
+        }
+        
+        .add-present-btn {
+            background-color: #28a745;
+        }
+        
+        .add-absent-btn {
+            background-color: #dc3545;
+        }
+        
+        .add-test-form {
+            margin-top: 10px;
+            padding: 10px;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+            border: 1px solid #e9ecef;
+            width: 100%;
+        }
+        
+        .add-test-controls {
+            margin-top: 10px;
+            display: flex;
+            gap: 10px;
+        }
+        
+        .add-test-controls button {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        
+        #add-test-submit {
+            background-color: #28a745;
+            color: white;
+        }
+        
+        #add-test-cancel {
+            background-color: #6c757d;
+            color: white;
+        }
     </style>
 </head>
 <body>
@@ -420,6 +479,18 @@
             <div class="tests-header">
                 <h2>Tests ({{ tests|length }})</h2>
                 <button id="reject-all-btn" class="reject-all-btn">Reject All & Next <span class="kbd-shortcut">Q</span></button>
+            </div>
+
+            <div class="add-test-buttons">
+                <button id="add-present-btn" class="add-test-btn add-present-btn">+Present</button>
+                <button id="add-absent-btn" class="add-test-btn add-absent-btn">+Absent</button>
+                <div id="add-test-form" class="add-test-form" style="display: none;">
+                    <textarea id="new-test-text" placeholder="Enter text to search for..."></textarea>
+                    <div class="add-test-controls">
+                        <button id="add-test-submit">Add</button>
+                        <button id="add-test-cancel">Cancel</button>
+                    </div>
+                </div>
             </div>
             
             {% for test in tests %}
@@ -1206,6 +1277,241 @@
         }
         
         // Add click event listeners to all editable fields and initialize keyboard navigation
+        // Function to add a new test
+        let currentTestType = null;
+        
+        function showAddTestForm(testType) {
+            currentTestType = testType;
+            const form = document.getElementById('add-test-form');
+            const textarea = document.getElementById('new-test-text');
+            
+            form.style.display = 'block';
+            textarea.focus();
+            
+            // Pre-select text from PDF if there's a selection
+            const selection = window.getSelection();
+            if (selection && selection.toString().trim()) {
+                textarea.value = selection.toString().trim();
+            }
+            
+            isEditMode = true;
+        }
+        
+        function hideAddTestForm() {
+            const form = document.getElementById('add-test-form');
+            const textarea = document.getElementById('new-test-text');
+            
+            form.style.display = 'none';
+            textarea.value = '';
+            currentTestType = null;
+            isEditMode = false;
+        }
+        
+        function submitNewTest() {
+            const text = document.getElementById('new-test-text').value.trim();
+            
+            if (!text || !currentTestType) {
+                return;
+            }
+            
+            // Get current page number
+            const currentPage = parseInt(document.getElementById('page-num').textContent);
+            
+            // Send to server
+            fetch('/add_test', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    pdf: '{{ pdf_name }}',
+                    type: currentTestType,
+                    text: text,
+                    page: currentPage
+                }),
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    // Create new test element
+                    const test = data.test;
+                    
+                    // Create a new test item element
+                    const testItem = document.createElement('div');
+                    testItem.className = 'test-item status-approved';
+                    testItem.dataset.id = test.id;
+                    
+                    // Create header
+                    const header = document.createElement('div');
+                    header.className = 'test-header';
+                    
+                    const typeSpan = document.createElement('span');
+                    typeSpan.className = `test-type ${test.type}`;
+                    typeSpan.textContent = test.type.toUpperCase();
+                    
+                    const buttonsDiv = document.createElement('div');
+                    buttonsDiv.className = 'test-buttons';
+                    
+                    const approveBtn = document.createElement('button');
+                    approveBtn.className = 'approve-btn';
+                    approveBtn.textContent = 'Approve ';
+                    approveBtn.onclick = function() {
+                        updateTestStatus(test.pdf, test.id, 'checked', 'verified');
+                    };
+                    
+                    const approveShortcut = document.createElement('span');
+                    approveShortcut.className = 'kbd-shortcut';
+                    approveShortcut.textContent = 'A';
+                    approveBtn.appendChild(approveShortcut);
+                    
+                    const rejectBtn = document.createElement('button');
+                    rejectBtn.className = 'reject-btn';
+                    rejectBtn.textContent = 'Reject ';
+                    rejectBtn.onclick = function() {
+                        updateTestStatus(test.pdf, test.id, 'checked', 'rejected');
+                    };
+                    
+                    const rejectShortcut = document.createElement('span');
+                    rejectShortcut.className = 'kbd-shortcut';
+                    rejectShortcut.textContent = 'R';
+                    rejectBtn.appendChild(rejectShortcut);
+                    
+                    const editBtn = document.createElement('button');
+                    editBtn.className = 'edit-btn';
+                    editBtn.textContent = 'Edit ';
+                    editBtn.onclick = function() {
+                        toggleEditMode(test.id);
+                    };
+                    
+                    const editShortcut = document.createElement('span');
+                    editShortcut.className = 'kbd-shortcut';
+                    editShortcut.textContent = 'E';
+                    editBtn.appendChild(editShortcut);
+                    
+                    buttonsDiv.appendChild(approveBtn);
+                    buttonsDiv.appendChild(rejectBtn);
+                    buttonsDiv.appendChild(editBtn);
+                    
+                    header.appendChild(typeSpan);
+                    header.appendChild(buttonsDiv);
+                    
+                    // Create content
+                    const content = document.createElement('div');
+                    content.className = 'test-content';
+                    
+                    const textDiv = document.createElement('div');
+                    const textStrong = document.createElement('strong');
+                    textStrong.textContent = 'Text:';
+                    
+                    const textSpan = document.createElement('span');
+                    textSpan.className = 'editable';
+                    textSpan.dataset.field = 'text';
+                    textSpan.dataset.id = test.id;
+                    textSpan.textContent = test.text;
+                    textSpan.onclick = function() { 
+                        isEditMode = true;
+                        startEditField(this); 
+                    };
+                    
+                    textDiv.appendChild(textStrong);
+                    textDiv.appendChild(document.createTextNode(' '));
+                    textDiv.appendChild(textSpan);
+                    
+                    // Create page number div
+                    const pageDiv = document.createElement('div');
+                    const pageStrong = document.createElement('strong');
+                    pageStrong.textContent = 'Page:';
+                    pageDiv.appendChild(pageStrong);
+                    pageDiv.appendChild(document.createTextNode(' ' + test.page));
+                    
+                    // Create case sensitive div
+                    const caseDiv = document.createElement('div');
+                    const caseStrong = document.createElement('strong');
+                    caseStrong.textContent = 'Case Sensitive:';
+                    caseDiv.appendChild(caseStrong);
+                    caseDiv.appendChild(document.createTextNode(' ' + test.case_sensitive));
+                    
+                    // Create max diffs control
+                    const diffDiv = document.createElement('div');
+                    diffDiv.className = 'max-diffs-control';
+                    
+                    const diffStrong = document.createElement('strong');
+                    diffStrong.textContent = 'Max Diffs:';
+                    
+                    const minusBtn = document.createElement('button');
+                    minusBtn.className = 'btn-small';
+                    minusBtn.textContent = '-';
+                    minusBtn.onclick = function() {
+                        updateMaxDiffs(test.pdf, test.id, -1);
+                    };
+                    
+                    const diffSpan = document.createElement('span');
+                    diffSpan.id = `max-diffs-${test.id}`;
+                    diffSpan.textContent = test.max_diffs;
+                    
+                    const plusBtn = document.createElement('button');
+                    plusBtn.className = 'btn-small';
+                    plusBtn.textContent = '+';
+                    plusBtn.onclick = function() {
+                        updateMaxDiffs(test.pdf, test.id, 1);
+                    };
+                    
+                    diffDiv.appendChild(diffStrong);
+                    diffDiv.appendChild(minusBtn);
+                    diffDiv.appendChild(diffSpan);
+                    diffDiv.appendChild(plusBtn);
+                    
+                    // Create status div
+                    const statusDiv = document.createElement('div');
+                    const statusStrong = document.createElement('strong');
+                    statusStrong.textContent = 'Status:';
+                    statusDiv.appendChild(statusStrong);
+                    statusDiv.appendChild(document.createTextNode(' ' + (test.checked || 'Not checked')));
+                    
+                    content.appendChild(textDiv);
+                    content.appendChild(pageDiv);
+                    content.appendChild(caseDiv);
+                    content.appendChild(diffDiv);
+                    content.appendChild(statusDiv);
+                    
+                    testItem.appendChild(header);
+                    testItem.appendChild(content);
+                    
+                    // Add the new test to the DOM
+                    const testsContainer = document.querySelector('.tests-panel');
+                    const addTestButtons = document.querySelector('.add-test-buttons');
+                    
+                    testsContainer.insertBefore(testItem, addTestButtons.nextSibling);
+                    
+                    // Update testItems array and select the new test
+                    testItems = Array.from(document.querySelectorAll('.test-item'));
+                    const newIndex = testItems.indexOf(testItem);
+                    setCurrentTest(newIndex);
+                    
+                    // Update test count
+                    const testsHeader = document.querySelector('.tests-header h2');
+                    const currentCount = parseInt(testsHeader.textContent.match(/\d+/)[0]);
+                    testsHeader.textContent = `Tests (${currentCount + 1})`;
+                    
+                    // Add click event listener to new test item
+                    testItem.addEventListener('click', function(e) {
+                        if (e.target.tagName !== 'BUTTON' && 
+                            !e.target.closest('.editable') && 
+                            !e.target.classList.contains('kbd-shortcut')) {
+                            setCurrentTest(newIndex);
+                            e.stopPropagation();
+                        }
+                    });
+                    
+                    // Hide the form
+                    hideAddTestForm();
+                }
+            })
+            .catch(error => {
+                console.error('Error adding test:', error);
+            });
+        }
+        
         document.addEventListener('DOMContentLoaded', function() {
             // Set up editable fields
             const editables = document.querySelectorAll('.editable');
@@ -1214,6 +1520,29 @@
                     isEditMode = true;
                     startEditField(this); 
                 };
+            });
+            
+            // Set up add test buttons
+            document.getElementById('add-present-btn').addEventListener('click', function() {
+                showAddTestForm('present');
+            });
+            
+            document.getElementById('add-absent-btn').addEventListener('click', function() {
+                showAddTestForm('absent');
+            });
+            
+            document.getElementById('add-test-submit').addEventListener('click', submitNewTest);
+            
+            document.getElementById('add-test-cancel').addEventListener('click', hideAddTestForm);
+            
+            // Add enter key handler for new test text
+            document.getElementById('new-test-text').addEventListener('keydown', function(e) {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    submitNewTest();
+                } else if (e.key === 'Escape') {
+                    hideAddTestForm();
+                }
             });
             
             // Get all test items for keyboard navigation

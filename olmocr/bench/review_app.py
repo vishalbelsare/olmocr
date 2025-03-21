@@ -162,6 +162,65 @@ def reject_all():
     return jsonify({"status": "error", "message": "PDF not found"})
 
 
+@app.route("/add_test", methods=["POST"])
+def add_test():
+    """API endpoint to add a new test."""
+    global PDF_TESTS, DATASET_DIR, DATASET_FILE
+
+    data = request.json
+    pdf_name = data.get("pdf")
+    test_type = data.get("type")  # 'present' or 'absent'
+    text = data.get("text", "")
+    page = data.get("page")
+
+    if not pdf_name or not test_type or not text:
+        return jsonify({"status": "error", "message": "Missing required fields"})
+
+    # Create a sequential ID based on the PDF name
+    # First, find the highest existing manual ID for this PDF
+    highest_seq = -1
+    manual_id_prefix = f"{pdf_name}_manual_"
+    
+    if pdf_name in PDF_TESTS:
+        for test in PDF_TESTS[pdf_name]:
+            test_id = test.get("id", "")
+            if test_id.startswith(manual_id_prefix):
+                try:
+                    seq_str = test_id[len(manual_id_prefix):]
+                    seq_num = int(seq_str)
+                    if seq_num > highest_seq:
+                        highest_seq = seq_num
+                except ValueError:
+                    continue
+    
+    # Create the next sequential ID
+    next_seq = highest_seq + 1
+    test_id = f"{manual_id_prefix}{next_seq:02d}"
+
+    # Create a new test
+    new_test = {
+        "pdf": pdf_name,
+        "page": page,
+        "id": test_id,
+        "type": test_type,
+        "text": text,
+        "case_sensitive": False,
+        "max_diffs": 0,
+        "checked": "verified",  # Manually added tests are verified by default
+    }
+
+    # Add to test collection
+    if pdf_name not in PDF_TESTS:
+        PDF_TESTS[pdf_name] = []
+    
+    PDF_TESTS[pdf_name].append(new_test)
+
+    # Save the updated tests
+    save_dataset(DATASET_FILE)
+
+    return jsonify({"status": "success", "test": new_test})
+
+
 @app.route("/next_pdf", methods=["POST"])
 def next_pdf():
     """Move to the next PDF in the list."""
