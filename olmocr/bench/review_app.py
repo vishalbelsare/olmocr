@@ -141,6 +141,45 @@ def update_test():
     return jsonify({"status": "success"})
 
 
+@app.route("/update_context_length", methods=["POST"])
+def update_context_length():
+    """API endpoint to update first_n or last_n for absent tests."""
+    global PDF_TESTS, DATASET_DIR, DATASET_FILE
+
+    data = request.json
+    pdf_name = data.get("pdf")
+    test_id = data.get("id")
+    field = data.get("field")  # 'first_n' or 'last_n'
+    change = data.get("change", 0)  # Amount to change by (positive or negative)
+
+    # Find and update the test
+    for test in PDF_TESTS.get(pdf_name, []):
+        if test.get("id") == test_id:
+            # Only allow this for absent tests
+            if test.get("type") != "absent":
+                return jsonify({"status": "error", "message": "Can only modify context length for absent tests"})
+            
+            # Get current value
+            current_value = test.get(field)
+            
+            # Initialize to 0 if None
+            if current_value is None:
+                current_value = 0
+                
+            # Update value (ensure it doesn't go below 0)
+            new_value = max(0, current_value + change)
+            
+            # Store as None if the value is 0
+            test[field] = None if new_value == 0 else new_value
+            
+            # Save the updated tests
+            save_dataset(DATASET_FILE)
+            
+            return jsonify({"status": "success", "new_value": new_value})
+
+    return jsonify({"status": "error", "message": "Test not found"})
+
+
 @app.route("/reject_all", methods=["POST"])
 def reject_all():
     """API endpoint to reject all tests for a PDF."""
@@ -160,6 +199,70 @@ def reject_all():
         return jsonify({"status": "success", "count": len(PDF_TESTS[pdf_name])})
 
     return jsonify({"status": "error", "message": "PDF not found"})
+
+
+@app.route("/add_test", methods=["POST"])
+def add_test():
+    """API endpoint to add a new test."""
+    global PDF_TESTS, DATASET_DIR, DATASET_FILE
+
+    data = request.json
+    pdf_name = data.get("pdf")
+    test_type = data.get("type")  # 'present' or 'absent'
+    text = data.get("text", "")
+    page = data.get("page")
+
+    if not pdf_name or not test_type or not text:
+        return jsonify({"status": "error", "message": "Missing required fields"})
+
+    # Create a sequential ID based on the PDF name
+    # First, find the highest existing manual ID for this PDF
+    highest_seq = -1
+    manual_id_prefix = f"{pdf_name}_manual_"
+    
+    if pdf_name in PDF_TESTS:
+        for test in PDF_TESTS[pdf_name]:
+            test_id = test.get("id", "")
+            if test_id.startswith(manual_id_prefix):
+                try:
+                    seq_str = test_id[len(manual_id_prefix):]
+                    seq_num = int(seq_str)
+                    if seq_num > highest_seq:
+                        highest_seq = seq_num
+                except ValueError:
+                    continue
+    
+    # Create the next sequential ID
+    next_seq = highest_seq + 1
+    test_id = f"{manual_id_prefix}{next_seq:02d}"
+
+    # Create a new test
+    new_test = {
+        "pdf": pdf_name,
+        "page": page,
+        "id": test_id,
+        "type": test_type,
+        "text": text,
+        "case_sensitive": False,
+        "max_diffs": 0,
+        "checked": "verified",  # Manually added tests are verified by default
+    }
+    
+    # Add first_n and last_n for absent tests
+    if test_type == "absent":
+        new_test["first_n"] = None
+        new_test["last_n"] = None
+
+    # Add to test collection
+    if pdf_name not in PDF_TESTS:
+        PDF_TESTS[pdf_name] = []
+    
+    PDF_TESTS[pdf_name].append(new_test)
+
+    # Save the updated tests
+    save_dataset(DATASET_FILE)
+
+    return jsonify({"status": "success", "test": new_test})
 
 
 @app.route("/next_pdf", methods=["POST"])
