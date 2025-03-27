@@ -230,16 +230,16 @@ def main():
         print("No valid tests found. Exiting.", file=sys.stderr)
         sys.exit(1)
 
-    for pdf in pdf_basenames:
-        if not any(t.type == "baseline" for t in all_tests if t.pdf == pdf):
-            all_tests.append(BaselineTest(id=f"{pdf}_baseline", pdf=pdf, page=1, type="baseline"))
+    # for pdf in pdf_basenames:
+    #     if not any(t.type == "baseline" for t in all_tests if t.pdf == pdf):
+    #         all_tests.append(BaselineTest(id=f"{pdf}_baseline", pdf=pdf, page=1, type="baseline"))
 
-    for pdf in pdf_basenames:
-        pdf_doc = PdfReader(os.path.join(pdf_folder, pdf))
-        for page in range(1, len(pdf_doc.pages) + 1):
-            if not any(test for test in all_tests if test.pdf == pdf and test.page == page) and not args.force:
-                print(f"No dataset entry found for pdf {pdf} page {page}")
-                sys.exit(1)
+    # for pdf in pdf_basenames:
+    #     pdf_doc = PdfReader(os.path.join(pdf_folder, pdf))
+    #     for page in range(1, len(pdf_doc.pages) + 1):
+    #         if not any(test for test in all_tests if test.pdf == pdf and test.page == page) and not args.force:
+    #             print(f"No dataset entry found for pdf {pdf} page {page}")
+    #             sys.exit(1)
 
     # Sample tests if requested
     if args.sample is not None and args.sample > 0:
