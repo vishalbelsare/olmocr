@@ -79,3 +79,10 @@ __pycache__
 docs/build
 site/
 out_head_foot/old_pdfs/
+
+output_multi_columns/
+output_multi_columns_1/
+multi_columns/
+order_pdfs/
+templates/
+*.txt
