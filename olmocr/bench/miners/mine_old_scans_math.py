@@ -135,7 +135,11 @@ def detect_equations(pdf_path: str, page_num: int, api_key: str) -> Optional[Lis
     return data.get("equations", [])
 
 
+<<<<<<< HEAD
 def process_pdf(pdf_path: str, output_dir: str, api_key: str, tests: List[TextPresenceTest], max_pages_per_pdf: int = 20) -> None:
+=======
+def process_pdf(pdf_path: str, output_dir: str, api_key: str, tests: List[TextPresenceTest], max_pages_per_pdf: int = 10) -> None:
+>>>>>>> 48de825 (added old_scans_math miner)
     """
     Process a single PDF, extracting equations from multiple pages.
 
@@ -167,12 +171,21 @@ def process_pdf(pdf_path: str, output_dir: str, api_key: str, tests: List[TextPr
         # Get all pages and shuffle them to select a random subset
         all_pages = list(range(num_pages))
         random.shuffle(all_pages)
+<<<<<<< HEAD
         
         # Take only the specified maximum number of pages
         pages_to_process = all_pages[:min(max_pages_per_pdf, num_pages)]
         
         processed_pages = 0
         
+=======
+
+        # Take only the specified maximum number of pages
+        pages_to_process = all_pages[: min(max_pages_per_pdf, num_pages)]
+
+        processed_pages = 0
+
+>>>>>>> 48de825 (added old_scans_math miner)
         for page_num in pages_to_process:
             # Detect equations
             equations = detect_equations(pdf_path, page_num, api_key)
@@ -205,7 +218,11 @@ def process_pdf(pdf_path: str, output_dir: str, api_key: str, tests: List[TextPr
 
             print(f"Processed {pdf_filename} page {page_num+1}, found {len(equations)} equations")
             processed_pages += 1
+<<<<<<< HEAD
             
+=======
+
+>>>>>>> 48de825 (added old_scans_math miner)
         print(f"Completed processing {processed_pages} pages from {pdf_filename}")
 
     except Exception as e:
@@ -223,6 +240,7 @@ def get_pdf_files_from_directory(directory: str) -> List[str]:
         List[str]: List of full paths to PDF files
     """
     pdf_files = []
+<<<<<<< HEAD
     
     for filename in os.listdir(directory):
         if filename.lower().endswith('.pdf'):
@@ -230,6 +248,15 @@ def get_pdf_files_from_directory(directory: str) -> List[str]:
             if os.path.isfile(full_path):
                 pdf_files.append(full_path)
     
+=======
+
+    for filename in os.listdir(directory):
+        if filename.lower().endswith(".pdf"):
+            full_path = os.path.join(directory, filename)
+            if os.path.isfile(full_path):
+                pdf_files.append(full_path)
+
+>>>>>>> 48de825 (added old_scans_math miner)
     return pdf_files
 
 
@@ -251,11 +278,19 @@ def main():
 
     # Get PDF files from input directory
     pdf_files = get_pdf_files_from_directory(args.input_dir)
+<<<<<<< HEAD
     
     if not pdf_files:
         print(f"No PDF files found in {args.input_dir}")
         return
         
+=======
+
+    if not pdf_files:
+        print(f"No PDF files found in {args.input_dir}")
+        return
+
+>>>>>>> 48de825 (added old_scans_math miner)
     print(f"Found {len(pdf_files)} PDF files in input directory")
 
     # Process each PDF
@@ -274,4 +309,8 @@ def main():
 
 
 if __name__ == "__main__":
+<<<<<<< HEAD
     main()
+=======
+    main()
+>>>>>>> 48de825 (added old_scans_math miner)
