@@ -244,7 +244,7 @@ def create_templates_directory():
     """Create templates directory for Flask if it doesn't exist."""
     templates_dir = os.path.join(os.path.dirname(__file__), "templates")
     os.makedirs(templates_dir, exist_ok=True)
-    
+
     # Create the review_latex.html template with MathJax support
     review_html = """
 <!DOCTYPE html>
@@ -607,7 +607,7 @@ def create_templates_directory():
 </body>
 </html>
     """
-    
+
     # Create the all_done_latex.html template
     all_done_html = """
 <!DOCTYPE html>
@@ -663,6 +663,7 @@ def create_templates_directory():
 </body>
 </html>
     """
+<<<<<<< HEAD
     
 <<<<<<< HEAD
     # Write the templates to the templates directory
@@ -671,10 +672,12 @@ def create_templates_directory():
         
     with open(os.path.join(templates_dir, "all_done.html"), "w") as f:
 =======
+=======
+>>>>>>> c72b8fb (fixed style and lint)
 
     with open(os.path.join(templates_dir, "review_latex.html"), "w") as f:
         f.write(review_html)
-        
+
     with open(os.path.join(templates_dir, "all_done_latex.html"), "w") as f:
 >>>>>>> 8abc475 (added old_scans and old_scans math miners and review app)
         f.write(all_done_html)
