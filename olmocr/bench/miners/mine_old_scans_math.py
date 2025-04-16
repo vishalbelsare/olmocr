@@ -135,7 +135,7 @@ def detect_equations(pdf_path: str, page_num: int, api_key: str) -> Optional[Lis
     return data.get("equations", [])
 
 
-def process_pdf(pdf_path: str, output_dir: str, api_key: str, tests: List[TextPresenceTest], max_pages_per_pdf: int = 12) -> None:
+def process_pdf(pdf_path: str, output_dir: str, api_key: str, tests: List[TextPresenceTest], max_pages_per_pdf: int = 20) -> None:
     """
     Process a single PDF, extracting equations from multiple pages.
 
