@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """
-mine_old_scans_math.py - Extract mathematical equations from PDF documents.
+mine_long_tiny_text.py - Extract mathematical equations from PDF documents.
 
 This script:
 1. Takes a folder containing PDF documents as input
 2. For each PDF, extracts a random page and renders it to an image
-3. Uses Gemini to identify mathematical equations in the rendered image
+3. Uses Gemini to identify text in the rendered image
 4. Creates a test file asserting that the equation text should be present
 5. Extracts the page from the PDF and saves it to an output folder
 
 Usage:
-  python mine_old_scans_math.py --input_dir path/to/pdf_folder --output_dir path/to/output --api_key your_gemini_api_key
+  python mine_long_tiny_text.py --input_dir path/to/pdf_folder --output_dir path/to/output --api_key your_gemini_api_key
 """
 
 import argparse
@@ -68,9 +68,9 @@ def extract_page_from_pdf(input_path: str, output_path: str, page_num: int) -> b
         raise
 
 
-def detect_equations(pdf_path: str, page_num: int, api_key: str) -> Optional[List[str]]:
+def detect_long_text(pdf_path: str, page_num: int, api_key: str) -> Optional[List[str]]:
     """
-    Use Gemini to detect mathematical equations in a rendered PDF page.
+    Use Gemini to detect long text in a rendered PDF page.
 
     Args:
         pdf_path: Path to the PDF file
@@ -78,7 +78,7 @@ def detect_equations(pdf_path: str, page_num: int, api_key: str) -> Optional[Lis
         api_key: Gemini API key
 
     Returns:
-        Optional[List[str]]: List of detected equations, or None if detection failed
+        Optional[List[str]]: List of detected text, or None if detection failed
     """
     client = genai.Client(
         api_key=os.environ.get("GEMINI_API_KEY"),
@@ -100,7 +100,7 @@ def detect_equations(pdf_path: str, page_num: int, api_key: str) -> Optional[Lis
             parts=[
                 image_part,
                 types.Part.from_text(
-                    text="""Please extract the mathematical equations from the document without omission. Always output the mathematical equations as Latex escaped with $$. Do not hallucinate"""
+                    text="""Extract and display the texts from the document without omission. Ensure nothing is summarized or abbreviated. Do not hallucinate"""
                 ),
             ],
         ),
@@ -175,7 +175,7 @@ def process_pdf(pdf_path: str, output_dir: str, api_key: str, tests: List[TextPr
         
         for page_num in pages_to_process:
             # Detect equations
-            equations = detect_equations(pdf_path, page_num, api_key)
+            equations = detect_long_text(pdf_path, page_num, api_key)
 
             # Only keep equations that are non-empty
             equations = [eq for eq in equations if len(eq.strip()) > 3]
@@ -234,7 +234,7 @@ def get_pdf_files_from_directory(directory: str) -> List[str]:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Extract mathematical equations from PDF documents")
+    parser = argparse.ArgumentParser(description="Extract long text from PDF documents")
     parser.add_argument("--input_dir", required=True, help="Directory containing PDF files")
     parser.add_argument("--output_dir", required=True, help="Directory to store extracted pages and tests")
     parser.add_argument("--api_key", help="Gemini API key (if not provided, will use GEMINI_API_KEY environment variable)")
@@ -265,12 +265,12 @@ def main():
 
         # Save tests after each PDF to avoid losing data in case of crashes
         if tests:
-            save_tests(tests, os.path.join(args.output_dir, "equation_tests.jsonl"))
+            save_tests(tests, os.path.join(args.output_dir, "long_tests.jsonl"))
 
         # if len(tests) > 100:
         #     break
 
-    print(f"Saved {len(tests)} tests to {os.path.join(args.output_dir, 'equation_tests.jsonl')}")
+    print(f"Saved {len(tests)} tests to {os.path.join(args.output_dir, 'long_tests.jsonl')}")
 
 
 if __name__ == "__main__":
