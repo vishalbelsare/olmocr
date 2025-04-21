@@ -18,7 +18,7 @@ import base64
 import json
 import os
 import random
-from typing import List, Optional
+from typing import List
 
 import pypdf
 from google import genai
@@ -101,7 +101,7 @@ def detect_long_text(pdf_path: str, page_num: int, api_key: str) -> List[str]:
                 parts=[
                     image_part,
                     types.Part.from_text(
-                        text="""Extract and display the texts from the document without omission. Ensure nothing is summarized or abbreviated. Do not hallucinate"""
+                        text = """Extract and display all text from the document without any omissions. The documents may be in a multi-column format, so handle that carefully. If the words are less than 9, combine text from the next line. I don't want all the text, just randomly pick few sentences. Do not summarize, abbreviate, or hallucinate any content."""
                     ),
                 ],
             ),
