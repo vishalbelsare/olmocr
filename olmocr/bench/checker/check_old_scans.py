@@ -8,16 +8,16 @@ from openai import OpenAI
 from olmocr.data.renderpdf import render_pdf_to_base64png
 
 
-def verify_header_footer_match(
+def verify_old_scans(
     pdf_path: str,
     page_num: int,
-    hea_foo_text: str,
+    old_scans_text: str,
     model: str,
     temperature: float = 0.1,
     target_longest_image_dim: int = 2048,
 ) -> Dict[str, Any]:
     """
-    Verify if a headers and footers matches what appears in a PDF page.
+    Verify if a text matches with what appears in a old scans PDF page.
 
     Args:
         pdf_path (str): Path to the PDF file
@@ -37,18 +37,18 @@ def verify_header_footer_match(
     client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
     prompt = f"""
-    This is a header and footer verification task.
+    This is a text verification task.
     
-    I'm showing you a page from a PDF document containing headers and footers text.
+    I'm showing you a page from a old PDF document which is typescript or handwritten.
     
-    Please verify if the headers or footers are exactly matches the below text.
+    Please verify if the below text appears correctly in the document.
     
-    {hea_foo_text}
+    {old_scans_text}
     
     Respond with a JSON object containing:
-    1. "status": "correct" or "incorrect"
+    1. "status": "present" or "absent"
     2. "confidence": a value between 0 and 1 representing your confidence in the answer
-    3. "explanation": a brief explanation of why you believe the text is correct or incorrect
+    3. "explanation": a brief explanation of why you believe the text is present or absent
     
     Focus specifically on checking if this exact header or footer expression appears in the document.
     """
@@ -73,7 +73,7 @@ def verify_header_footer_match(
 
     return {
         "pdf": pdf_path,
-        "math": hea_foo_text,
+        "math": old_scans_text,
         "status": result.get("status", "unknown"),
         "confidence": result.get("confidence", 0),
         "explanation": result.get("explanation", "No explanation provided"),
@@ -109,7 +109,7 @@ def process_jsonl_file(input_jsonl_path: str, output_jsonl_path: str, model: str
                     print(f"Line {line_num}: Processing: {pdf_path}, page {page_num}")
 
                     try:
-                        result = verify_header_footer_match(pdf_path=pdf_path, page_num=page_num, hea_foo_text=text_expr, model=model, temperature=temperature)
+                        result = verify_old_scans(pdf_path=pdf_path, page_num=page_num, old_scans_text=text_expr, model=model, temperature=temperature)
                         out_file.write(json.dumps(result) + "\n")
                         processed_count += 1
                     except Exception as e:
@@ -125,7 +125,7 @@ def process_jsonl_file(input_jsonl_path: str, output_jsonl_path: str, model: str
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Verify headers footers expressions in PDFs")
+    parser = argparse.ArgumentParser(description="Verify LaTeX math expressions in PDFs")
     parser.add_argument("input_jsonl", help="Path to input JSONL file")
     parser.add_argument("output_jsonl", help="Path to output JSONL file")
     parser.add_argument("--model", default="o3-2025-04-16", help="OpenAI model to use")
