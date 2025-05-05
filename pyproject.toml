@@ -36,7 +36,7 @@ dependencies = [
   "boto3",
   "httpx",
   "torch>=2.5.1",
-  "transformers==4.46.2",
+  "transformers==4.51.3",
   "img2pdf",
   "beaker-py",
 ]
@@ -105,7 +105,7 @@ train = [
     "s3fs",
     "necessary",
     "einops",
-    "transformers>=4.45.1"
+    "transformers==4.51.3"
 ]
 
 elo = [
