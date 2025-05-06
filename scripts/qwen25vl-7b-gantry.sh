@@ -32,6 +32,7 @@ gantry run \
     --pip gantry-requirements.txt \
     --priority high \
     --gpus 8 \
+    --not-preemptible \
     --weka "oe-data-default:/data" \
     --cluster "ai2/${CLUSTER}*" \
     --budget ai2/oe-data \
