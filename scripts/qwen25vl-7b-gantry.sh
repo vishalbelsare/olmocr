@@ -32,10 +32,9 @@ gantry run \
     --pip gantry-requirements.txt \
     --priority high \
     --gpus 8 \
-    --preemptible \
+    --weka "oe-data-default:/data" \
     --cluster "ai2/${CLUSTER}*" \
     --budget ai2/oe-data \
-    --weka "oe-data-default:/data" \
     --env LOG_FILTER_TYPE=local_rank0_only \
     --env OMP_NUM_THREADS=8 \
     --env BEAKER_USER_ID=$(beaker account whoami --format json | jq '.[0].name' -cr) \
@@ -44,4 +43,4 @@ gantry run \
     --env-secret WANDB_API_KEY=JAKE_WANDB_API_KEY \
     --shared-memory 10GiB \
     --yes \
-    -- /bin/bash -c "source scripts/beaker/${CLUSTER}-ib.sh && python -m olmocr.train.loaddataset ${EXTRA_ARGS} && accelerate launch --use_fsdp --num_processes \${BEAKER_ASSIGNED_GPU_COUNT} --fsdp_offload_params false --fsdp_sharding_strategy FULL_SHARD --fsdp_auto_wrap_policy TRANSFORMER_BASED_WRAP --mixed_precision bf16 -m olmocr.train.train ${EXTRA_ARGS}"
+    -- /bin/bash -c "source scripts/beaker/${CLUSTER}-ib.sh && pip install ninja && pip install flash-attn --upgrade --no-build-isolation && python -m olmocr.train.loaddataset ${EXTRA_ARGS} && accelerate launch --use_fsdp --num_processes \${BEAKER_ASSIGNED_GPU_COUNT} --fsdp_offload_params false --fsdp_sharding_strategy FULL_SHARD --fsdp_auto_wrap_policy TRANSFORMER_BASED_WRAP --mixed_precision bf16 -m olmocr.train.train ${EXTRA_ARGS}"
