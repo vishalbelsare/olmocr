@@ -14,23 +14,14 @@ train_data:
   seed: 1337
   cache_location: /data/jakep/pdfdata/pdelfin_cache
   sources:
-      # These tend to be small, so you can load from s3 it's no big deal
-    - name: openai_batch_data_v5_1_eval
-      response_glob_path: s3://ai2-oe-data/jakep/pdfdata/openai_batch_done_v5_1_eval/*.json
+    - name: openai_batch_data_v5_1_train
+      response_glob_path: /data/jakep/pdfdata/openai_batch_data_v5_1_train_done/*.json
       target_longest_image_dim: [1024]
       target_anchor_text_len: [6000]
-    - name: openai_batch_data_v5_1_iabooks_eval
-      response_glob_path: s3://ai2-oe-data/jakep/pdfdata/openai_batch_done_v5_1_iabooks_eval/*.json
+    - name: openai_batch_data_v5_1_iabooks_train
+      response_glob_path: /data/jakep/pdfdata/openai_batch_data_v5_1_iabooks_train_done/*.json
       target_longest_image_dim: [1024]
       target_anchor_text_len: [6000]
-    # - name: openai_batch_data_v5_1_train
-    #   response_glob_path: /data/jakep/pdfdata/openai_batch_data_v5_1_train_done/*.json
-    #   target_longest_image_dim: [1024]
-    #   target_anchor_text_len: [6000]
-    # - name: openai_batch_data_v5_1_iabooks_train
-    #   response_glob_path: /data/jakep/pdfdata/openai_batch_data_v5_1_iabooks_train_done/*.json
-    #   target_longest_image_dim: [1024]
-    #   target_anchor_text_len: [6000]
 
 valid_data:
   cache_location: /data/jakep/pdfdata/pdelfin_cache
@@ -56,9 +47,9 @@ hparams:
   gradient_checkpointing: true
   clip_grad_norm: 1.0
   learning_rate: 1e-6
-  max_steps: 10000
+  max_steps: 20000
   pad_multiple_of: 16
-  log_every_steps: 10
+  log_every_steps: 100
   eval_every_steps: 100
   optim: adamw_torch
   lr_scheduler: cosine
@@ -68,6 +59,6 @@ hparams:
 
 save:
   path: s3://ai2-oe-data/jakep/experiments/qwen25vl-pdf/v1/models/
-  save_every_steps: 9500
+  save_every_steps: 19000
 
 max_workers: 10
