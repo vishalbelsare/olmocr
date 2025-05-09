@@ -26,11 +26,11 @@ gantry run \
     --task-name "${run_name}"\
     --allow-dirty \
     --host-networking \
-    --workspace ai2/oe-data-model-based-cleanup \
+    --workspace ai2/oe-data-pdf \
     --beaker-image 'jakep/jakep-pdf-finetunev1.2' \
     --venv 'base' \
     --pip gantry-requirements.txt \
-    --priority high \
+    --priority normal \
     --gpus 8 \
     --not-preemptible \
     --weka "oe-data-default:/data" \
