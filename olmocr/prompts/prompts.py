@@ -98,12 +98,19 @@ def openai_response_format_schema() -> dict:
 
 # This is a base prompt that will be used for training and running the fine tuned model
 # It's simplified from the prompt which was used to generate the silver data, and can change from dataset to dataset
-def build_finetuning_prompt(base_text: str) -> str:
+def build_finetuning_prompt_qwen2(base_text: str) -> str:
     return (
         f"Below is the image of one page of a document, as well as some raw textual content that was previously extracted for it. "
         f"Just return the plain text representation of this document as if you were reading it naturally.\n"
         f"Do not hallucinate.\n"
         f"RAW_TEXT_START\n{base_text}\nRAW_TEXT_END"
+    )
+
+# This is the new fine tuning prompt we are trying for qwen2.5 vl
+def build_finetuning_prompt(base_text: str) -> str:
+    return (
+        f"Below is the image of one page of a document. "
+        f"Just return the plain text representation of this document as if you were reading it naturally.\n"
     )
 
 
