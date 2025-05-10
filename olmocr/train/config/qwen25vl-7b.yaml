@@ -47,7 +47,7 @@ hparams:
   gradient_checkpointing: true
   clip_grad_norm: 1.0
   learning_rate: 5e-6
-  max_steps: 15000
+  max_steps: 30000
   pad_multiple_of: 16
   log_every_steps: 100
   eval_every_steps: 100
