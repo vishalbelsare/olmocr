@@ -108,10 +108,8 @@ def build_finetuning_prompt_qwen2(base_text: str) -> str:
 
 # This is the new fine tuning prompt we are trying for qwen2.5 vl
 def build_finetuning_prompt(base_text: str) -> str:
-    return (
-        f"Below is the image of one page of a document. "
-        f"Just return the plain text representation of this document as if you were reading it naturally.\n"
-    )
+    return "Return the plain text representation of this document as if you were reading it naturally.\n"
+    
 
 
 # Extracts the anchor text component from an existing prompt string
