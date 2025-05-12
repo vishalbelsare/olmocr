@@ -5,8 +5,9 @@ import os
 
 import boto3
 import torch
+from tqdm import tqdm
 from smart_open import smart_open
-from transformers import Qwen2VLForConditionalGeneration
+from transformers import Qwen2_5_VLForConditionalGeneration
 
 from olmocr.s3_utils import parse_s3_path
 
@@ -42,7 +43,7 @@ def download_model_from_s3(bucket_name, model_s3_key, local_model_dir):
         futures = [executor.submit(download_file_from_s3, bucket_name, key, local_file_path) for bucket_name, key, local_file_path in download_tasks]
 
         # Wait for all downloads to complete and handle any exceptions
-        for future in concurrent.futures.as_completed(futures):
+        for future in tqdm(concurrent.futures.as_completed(futures)):
             try:
                 future.result()  # This will raise any exceptions encountered during download
             except Exception as e:
@@ -85,26 +86,13 @@ def main():
     parser.add_argument("s3_path", type=str, help="S3 path to the Hugging Face checkpoint.")
     args = parser.parse_args()
 
-    qwen_replacement_files = [
-        # Config is special to fix rope config
-        "s3://ai2-oe-data/artifacts/Qwen2-VL-7B-Instruct/config.json",
-        # Tokenizer and preprocessor are just not saved in the usual flow
-        "https://huggingface.co/Qwen/Qwen2-VL-7B-Instruct/resolve/main/tokenizer.json",
-        "https://huggingface.co/Qwen/Qwen2-VL-7B-Instruct/resolve/main/tokenizer_config.json",
-        "https://huggingface.co/Qwen/Qwen2-VL-7B-Instruct/resolve/main/vocab.json",
-        "https://huggingface.co/Qwen/Qwen2-VL-7B-Instruct/resolve/main/merges.txt",
-        "https://huggingface.co/Qwen/Qwen2-VL-7B-Instruct/resolve/main/generation_config.json",
-        "https://huggingface.co/Qwen/Qwen2-VL-7B-Instruct/resolve/main/chat_template.json",
-        "https://huggingface.co/Qwen/Qwen2-VL-7B-Instruct/resolve/main/preprocessor_config.json",
-    ]
-
     # Now, download the config.json from the original path and verify the architectures
     config_path = os.path.join(args.s3_path, "config.json")
-
+   
     with smart_open(config_path, "r") as f:
         config_data = json.load(f)
 
-    assert config_data["architectures"] == ["Qwen2VLForConditionalGeneration"]
+    assert config_data["architectures"] == ["Qwen2_5_VLForConditionalGeneration"]
 
     if config_data["torch_dtype"] == "float32":
         print("Detected model is float32, this is probably an FSDP checkpoint")
@@ -115,7 +103,7 @@ def main():
         download_model_from_s3(bucket, prefix, td)
 
         print("Downloaded entire model from s3, resaving as bfloat16")
-        model = Qwen2VLForConditionalGeneration.from_pretrained(td)
+        model = Qwen2_5_VLForConditionalGeneration.from_pretrained(td)
         model = model.to(torch.bfloat16)
         os.makedirs(os.path.join(td, "bf16_checkpoint"), exist_ok=True)
 
@@ -127,16 +115,6 @@ def main():
 
         args.s3_path = args.s3_path.rstrip("/") + "/bf16"
 
-    # Iterate over each file in the replacement list
-    for replacement_file in qwen_replacement_files:
-        filename = os.path.basename(replacement_file)
-        dest_path = os.path.join(args.s3_path, filename)
-
-        with smart_open(replacement_file, "rb") as src_file:
-            data = src_file.read()
-
-        with smart_open(dest_path, "wb") as dest_file:
-            dest_file.write(data)
 
     print("Model updated successfully.")
 
