@@ -3,6 +3,7 @@ import random
 from io import BytesIO
 from typing import Union
 
+import albumentations as A
 import numpy as np
 import torch  # Make sure to import torch as it's used in the DataCollator
 from PIL import Image
@@ -22,21 +23,42 @@ def prepare_data_for_qwen2_training(example, processor, target_longest_image_dim
     anchor_text = get_anchor_text(example["local_pdf_path"], example["page_num"], pdf_engine="pdfreport", target_length=target_anchor_text_len)
     base64_page_image = render_pdf_to_base64png(example["local_pdf_path"], example["page_num"], target_longest_image_dim=target_longest_image_dim)
 
-    # Prepare messages
+    # Decode image from base64
+    main_image = Image.open(BytesIO(base64.b64decode(base64_page_image)))
+
+    # Apply image augmentation with 15% probability
+    transform = A.Affine(
+        rotate=(-15, 15),      # Rotate by -15 to +15 degrees
+        scale=(0.9, 1.1),      # Zoom in/out by 90-110%
+        p=0.15
+    )
+
+    # Convert PIL image to numpy array for albumentations
+    np_image = np.array(main_image)
+
+    # Apply the transformation
+    transformed = transform(image=np_image)
+
+    # Convert back to PIL
+    main_image = Image.fromarray(transformed['image'])
+
+    # Convert the augmented image back to base64 for the message
+    augmented_image_buffer = BytesIO()
+    main_image.save(augmented_image_buffer, format="PNG")
+    augmented_base64_image = base64.b64encode(augmented_image_buffer.getvalue()).decode("utf-8")
+
+    # Prepare messages with the augmented image
     messages = [
         {
             "role": "user",
             "content": [
-                {"type": "image", "image": base64_page_image},
+                {"type": "image", "image": augmented_base64_image},
                 {"type": "text", "text": build_finetuning_prompt(anchor_text)},
             ],
         }
     ]
     # Apply chat template to get the text
     text = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-
-    # Decode image from base64
-    main_image = Image.open(BytesIO(base64.b64decode(base64_page_image)))
 
     # Process inputs using processor
     inputs = processor(

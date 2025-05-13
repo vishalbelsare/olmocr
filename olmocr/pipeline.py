@@ -138,8 +138,8 @@ async def build_page_query(local_pdf_path: str, page: int, target_longest_image_
             {
                 "role": "user",
                 "content": [
-                    {"type": "text", "text": build_finetuning_prompt(anchor_text)},
                     {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{image_base64}"}},
+                    {"type": "text", "text": build_finetuning_prompt(anchor_text)},
                 ],
             }
         ],
