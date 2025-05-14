@@ -138,8 +138,8 @@ async def build_page_query(local_pdf_path: str, page: int, target_longest_image_
             {
                 "role": "user",
                 "content": [
-                    {"type": "text", "text": build_finetuning_prompt(anchor_text)},
                     {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{image_base64}"}},
+                    {"type": "text", "text": build_finetuning_prompt(anchor_text)},
                 ],
             }
         ],
@@ -500,7 +500,7 @@ async def worker(args, work_queue: WorkQueue, semaphore, worker_id):
 async def sglang_server_task(model_name_or_path, args, semaphore):
     # Check GPU memory, lower mem devices need a bit less KV cache space because the VLM takes additional memory
     gpu_memory = torch.cuda.get_device_properties(0).total_memory / (1024**3)  # Convert to GB
-    mem_fraction_arg = ["--mem-fraction-static", "0.80"] if gpu_memory < 60 else []
+    mem_fraction_arg = ["--mem-fraction-static", "0.70"] if gpu_memory < 60 else []
 
     cmd = [
         "python3",

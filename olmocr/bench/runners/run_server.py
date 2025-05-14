@@ -22,6 +22,7 @@ async def run_server(
     target_longest_image_dim: int = 1024,
     prompt_template: Literal["full", "basic", "finetune"] = "finetune",
     response_template: Literal["plain", "json"] = "json",
+    prompt_image_first: bool = False,
 ) -> str:
     """
     Convert page of a PDF file to markdown by calling a request
@@ -48,20 +49,36 @@ async def run_server(
     else:
         raise ValueError("Unknown prompt template")
 
-    request = {
-        "model": model,
-        "messages": [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt},
-                    {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{image_base64}"}},
-                ],
-            }
-        ],
-        "temperature": temperature,
-        "max_tokens": 3000,
-    }
+    if prompt_image_first:
+        request = {
+            "model": model,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{image_base64}"}},
+                        {"type": "text", "text": prompt},
+                    ],
+                }
+            ],
+            "temperature": temperature,
+            "max_tokens": 3000,
+        }
+    else:
+        request = {
+            "model": model,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{image_base64}"}},
+                    ],
+                }
+            ],
+            "temperature": temperature,
+            "max_tokens": 3000,
+        }
 
     # Make request and get response using httpx
     url = f"http://{server}/v1/chat/completions"
