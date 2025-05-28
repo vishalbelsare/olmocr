@@ -1,0 +1,26 @@
+version: v2
+budget: ai2/oe-training
+description: Test benchmark results
+retry:
+  allowedTaskRetries: 3
+tasks:
+  - name: testing-olmocr-bench-results
+    image:
+      beaker: amanr/olmocr_latest
+    command:
+      - /bin/bash
+      - /new_mount_path/unshard_upload_hf_gs_augusta.sh
+    resources:
+      gpuCount: 1
+    datasets:
+      - mountPath: /new_mount_path/
+        source:
+          beaker: amanr/01
+      - mountPath: /data/
+        source:
+          hostPath: /data/
+    context:
+      preemptible: true
+    constraints:
+      cluster:
+        - ai2/augusta-google-1
