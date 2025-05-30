@@ -74,7 +74,7 @@ async def run_olmocr_pipeline(pdf_path: str, page_num: int = 1, model: str = "al
         page_result: PageResult = await process_page(args=args, worker_id=worker_id, pdf_orig_path=pdf_path, pdf_local_path=pdf_path, page_num=page_num)
 
         # Return the natural text from the response
-        if page_result and page_result.response:
+        if page_result and page_result.response and not page_result.is_fallback:
             return page_result.response.natural_text
         return None
 
