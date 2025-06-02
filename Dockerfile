@@ -1,4 +1,4 @@
-FROM --platform=linux/amd64 nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu20.04
+FROM --platform=linux/amd64 nvidia/cuda:12.8.0-runtime-ubuntu20.04
 
 RUN apt-get update -y && apt-get install -y software-properties-common \
     && add-apt-repository ppa:deadsnakes/ppa \
