@@ -37,8 +37,9 @@ WORKDIR /root
 COPY pyproject.toml pyproject.toml
 COPY olmocr/version.py olmocr/version.py
 
+RUN /root/.local/bin/uv pip install --system --no-cache "sglang[all]>=0.4.6.post5"
+RUN /root/.local/bin/uv pip install --system --no-cache vllm
 RUN /root/.local/bin/uv pip install --system --no-cache -e .
-RUN /root/.local/bin/uv pip install --system --no-cache ".[gpu]" --find-links https://flashinfer.ai/whl/cu126/torch2.6/flashinfer/
 RUN /root/.local/bin/uv pip install --system --no-cache ".[bench]"
 RUN playwright install-deps
 RUN playwright install chromium
