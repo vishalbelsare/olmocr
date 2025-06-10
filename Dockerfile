@@ -2,7 +2,7 @@ ARG CUDA_VERSION=12.6.0
 
 FROM --platform=linux/amd64 nvidia/cuda:${CUDA_VERSION}-devel-ubuntu20.04
 
-ARG PYTHON_VERSION=3.12
+ARG PYTHON_VERSION=3.11
 ARG CUDA_VERSION=12.6.0
 
 # Set environment variable to prevent interactive prompts
