@@ -54,7 +54,7 @@ COPY olmocr/version.py olmocr/version.py
 # Needed to resolve setuptools dependencies
 ENV UV_INDEX_STRATEGY="unsafe-best-match"
 RUN uv pip install --system --no-cache -e ".[gpu]"  --extra-index-url https://download.pytorch.org/whl/cu128
-# RUN uv pip install --system https://download.pytorch.org/whl/cu128/flashinfer/flashinfer_python-0.2.5%2Bcu128torch2.7-cp38-abi3-linux_x86_64.whl
+# RUN uv pip install --system https://download.pytorch.org/whl/cu128/flashinfer/flashinfer_python-0.2.5%2Bcu128torch2.7-cp38-abi3-linux_x86_64.whl12.8.1
 RUN uv pip install --system --no-cache ".[bench]"
 RUN playwright install-deps
 RUN playwright install chromium

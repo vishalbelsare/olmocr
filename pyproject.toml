@@ -36,7 +36,7 @@ dependencies = [
   "zstandard",
   "boto3",
   "httpx",
-  "torch>=2.6.0",
+  "torch>=2.5.1",
   "transformers>=4.51.1",
   "img2pdf",
   "beaker-py",
@@ -51,7 +51,7 @@ Changelog = "https://github.com/allenai/olmocr/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 gpu = [
-    "vllm==0.8.1"
+    "vllm==0.7.2"
 ]
 
 dev = [
