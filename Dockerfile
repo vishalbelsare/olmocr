@@ -60,7 +60,7 @@ COPY olmocr/version.py olmocr/version.py
 # Needed to resolve setuptools dependencies
 ENV UV_INDEX_STRATEGY="unsafe-best-match"
 
-RUN uv pip install --system --no-cache-dir "sglang[all]>=0.4.6.post5"
+RUN uv pip install --system --no-cache-dir "sglang[all]>=0.4.7"
 RUN uv pip install --system --no-cache-dir -e .
 RUN uv pip install --system --no-cache ".[bench]"
 RUN playwright install-deps
