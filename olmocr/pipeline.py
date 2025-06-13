@@ -115,7 +115,6 @@ class PageResult:
 
 
 async def build_page_query(local_pdf_path: str, page: int, target_longest_image_dim: int, target_anchor_text_len: int, image_rotation: int = 0) -> list[dict]:
-    MAX_TOKENS = 4500
     assert image_rotation in [0, 90, 180, 270], "Invalid image rotation provided in build_page_query"
 
     # Allow the page rendering to process in the background while we get the anchor text (which blocks the main thread)
@@ -171,8 +170,6 @@ async def generate_one(engine: AsyncLLMEngine, msgs: list[dict], sampling_params
 
     prompt = TextPrompt(prompt=prompt_data)
 
-    logger.info(f"prompt data: {prompt_data}")
-
     if mm_data is not None:
         prompt["multi_modal_data"] = mm_data
 
@@ -184,7 +181,7 @@ async def generate_one(engine: AsyncLLMEngine, msgs: list[dict], sampling_params
 
 
 async def process_page(args, worker_id: int, pdf_orig_path: str, pdf_local_path: str, page_num: int) -> PageResult:
-    global engine
+    MAX_TOKENS = 4500
     MAX_RETRIES = args.max_page_retries
     TEMPERATURE_BY_ATTEMPT = [0.1, 0.1, 0.2, 0.3, 0.5, 0.8, 0.1, 0.8]
     FORCE_NO_DOCUMENT_ANCHORING_BY_ATTEMPT = [False, False, False, False, False, False, True, True]
@@ -209,7 +206,7 @@ async def process_page(args, worker_id: int, pdf_orig_path: str, pdf_local_path:
 
         try:
             request_output = await generate_one(engine, query, 
-                                                SamplingParams(n=1, temperature=TEMPERATURE_BY_ATTEMPT[lookup_attempt],),
+                                                SamplingParams(n=1, temperature=TEMPERATURE_BY_ATTEMPT[lookup_attempt], max_tokens=MAX_TOKENS),
                                                 idx=f"{pdf_orig_path}-{worker_id}-{page_num}-{attempt}")
 
             if not request_output.finished:
@@ -239,7 +236,6 @@ async def process_page(args, worker_id: int, pdf_orig_path: str, pdf_local_path:
                 server_output_tokens=num_completion_tokens,
             )
 
-            logger.info(f"Msg output '{request_output.outputs[0].text}'")
             model_response_json = json.loads(request_output.outputs[0].text)
             page_response = PageResponse(**model_response_json)
 
