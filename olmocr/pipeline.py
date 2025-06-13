@@ -29,6 +29,12 @@ from huggingface_hub import snapshot_download
 from PIL import Image
 from pypdf import PdfReader
 from tqdm import tqdm
+from vllm import AsyncLLMEngine, SamplingParams, RequestOutput, TextPrompt
+from vllm.engine.arg_utils import AsyncEngineArgs
+from vllm.entrypoints.chat_utils import (ChatCompletionMessageParam,
+                                         apply_hf_chat_template,
+                                         apply_mistral_chat_template,
+                                         parse_chat_messages)
 
 from olmocr.check import (
     check_poppler_version,
@@ -93,6 +99,9 @@ get_pdf_filter = cache(lambda: PdfFilter(languages_to_keep={Language.ENGLISH, No
 # Specify a default port, but it can be overridden by args
 BASE_SERVER_PORT = 30024
 
+# Global AsyncLLMEngine instance
+engine: AsyncLLMEngine | None = None
+
 
 @dataclass(frozen=True)
 class PageResult:
@@ -105,7 +114,7 @@ class PageResult:
     is_fallback: bool
 
 
-async def build_page_query(local_pdf_path: str, page: int, target_longest_image_dim: int, target_anchor_text_len: int, image_rotation: int = 0) -> dict:
+async def build_page_query(local_pdf_path: str, page: int, target_longest_image_dim: int, target_anchor_text_len: int, image_rotation: int = 0) -> list[dict]:
     MAX_TOKENS = 4500
     assert image_rotation in [0, 90, 180, 270], "Invalid image rotation provided in build_page_query"
 
@@ -132,9 +141,8 @@ async def build_page_query(local_pdf_path: str, page: int, target_longest_image_
         # Encode the rotated image back to base64
         image_base64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
 
-    return {
-        "model": "Qwen/Qwen2-VL-7B-Instruct",
-        "messages": [
+    # Final message array
+    return [
             {
                 "role": "user",
                 "content": [
@@ -142,79 +150,37 @@ async def build_page_query(local_pdf_path: str, page: int, target_longest_image_
                     {"type": "text", "text": build_finetuning_prompt(anchor_text)},
                 ],
             }
-        ],
-        "max_tokens": MAX_TOKENS,
-        "temperature": 0.0,
-    }
+        ]
 
 
-# Manual simple implementation of HTTP Post
-# It feels strange perhaps, but httpx and aiohttp are very complex beasts
-# Ex. the sessionpool in httpcore has 4 different locks in it, and I've noticed
-# that at the scale of 100M+ requests, that they deadlock in different strange ways
-async def apost(url, json_data):
-    parsed_url = urlparse(url)
-    host = parsed_url.hostname
-    port = parsed_url.port or 80
-    path = parsed_url.path or "/"
+async def generate_one(engine: AsyncLLMEngine, msgs: list[dict], sampling_params: SamplingParams, idx: str) -> RequestOutput:
+    tokenizer = await engine.get_tokenizer()
+    model_config = await engine.get_model_config()
 
-    writer = None
-    try:
-        reader, writer = await asyncio.open_connection(host, port)
+    conversation, mm_data = parse_chat_messages(msgs, model_config, tokenizer)
 
-        json_payload = json.dumps(json_data)
-        request = (
-            f"POST {path} HTTP/1.1\r\n"
-            f"Host: {host}\r\n"
-            f"Content-Type: application/json\r\n"
-            f"Content-Length: {len(json_payload)}\r\n"
-            f"Connection: close\r\n\r\n"
-            f"{json_payload}"
-        )
-        writer.write(request.encode())
-        await writer.drain()
+    prompt_data = apply_hf_chat_template(
+        tokenizer,
+        conversation=conversation,
+        chat_template=None, # Use default chat template
+        add_generation_prompt=True,
+        continue_final_message=False,
+    )
 
-        # Read status line
-        status_line = await reader.readline()
-        if not status_line:
-            raise ConnectionError("No response from server")
-        status_parts = status_line.decode().strip().split(" ", 2)
-        if len(status_parts) < 2:
-            raise ValueError(f"Malformed status line: {status_line.decode().strip()}")
-        status_code = int(status_parts[1])
+    prompt = TextPrompt(prompt=prompt_data)
 
-        # Read headers
-        headers = {}
-        while True:
-            line = await reader.readline()
-            if line in (b"\r\n", b"\n", b""):
-                break
-            key, _, value = line.decode().partition(":")
-            headers[key.strip().lower()] = value.strip()
+    if mm_data is not None:
+        prompt["multi_modal_data"] = mm_data
 
-        # Read response body
-        if "content-length" in headers:
-            body_length = int(headers["content-length"])
-            response_body = await reader.readexactly(body_length)
-        else:
-            raise ConnectionError("Anything other than fixed content length responses are not implemented yet")
-
-        return status_code, response_body
-    except Exception as e:
-        # Pass through errors
-        raise e
-    finally:
-        # But just make sure to close the socket on your way out
-        if writer is not None:
-            try:
-                writer.close()
-                await writer.wait_closed()
-            except:
-                pass
+    async for request_output in engine.generate(prompt, sampling_params, f"req-{idx}"):
+        if request_output.finished:
+            return request_output
+        
+    raise RuntimeError("No output generated for request")
 
 
 async def process_page(args, worker_id: int, pdf_orig_path: str, pdf_local_path: str, page_num: int) -> PageResult:
-    COMPLETION_URL = f"http://localhost:{BASE_SERVER_PORT}/v1/chat/completions"
+    global engine
     MAX_RETRIES = args.max_page_retries
     TEMPERATURE_BY_ATTEMPT = [0.1, 0.1, 0.2, 0.3, 0.5, 0.8, 0.1, 0.8]
     FORCE_NO_DOCUMENT_ANCHORING_BY_ATTEMPT = [False, False, False, False, False, False, True, True]
@@ -240,28 +206,36 @@ async def process_page(args, worker_id: int, pdf_orig_path: str, pdf_local_path:
         logger.info(f"Built page query for {pdf_orig_path}-{page_num}")
 
         try:
-            status_code, response_body = await apost(COMPLETION_URL, json_data=query)
+            request_output = await generate_one(engine, query, SamplingParams(n=1, temperature=TEMPERATURE_BY_ATTEMPT[lookup_attempt]), f"{pdf_orig_path}-{worker_id}-{page_num}-{attempt}")
 
-            if status_code == 400:
-                raise ValueError(f"Got BadRequestError from server: {response_body}, skipping this response")
-            elif status_code == 500:
-                raise ValueError(f"Got InternalServerError from server: {response_body}, skipping this response")
-            elif status_code != 200:
-                raise ValueError(f"Error http status {status_code}")
+            if not request_output.finished:
+                raise ValueError("Request returned not finished")
+            if len(request_output.outputs) != 1:
+                raise ValueError("Request did not return a single output completion")
+            if not request_output.outputs[0].finished:
+                raise ValueError("Request output 0 returned not finished")
 
-            base_response_data = json.loads(response_body)
+            # if status_code == 400:
+            #     raise ValueError(f"Got BadRequestError from server: {response_body}, skipping this response")
+            # elif status_code == 500:
+            #     raise ValueError(f"Got InternalServerError from server: {response_body}, skipping this response")
+            # elif status_code != 200:
+            #     raise ValueError(f"Error http status {status_code}")
 
-            if base_response_data["usage"]["total_tokens"] > args.model_max_context:
+            num_prompt_tokens = len(request_output.prompt_token_ids)
+            num_completion_tokens = len(request_output.outputs[0].token_ids)
+
+            if num_prompt_tokens + num_completion_tokens > args.model_max_context:
                 local_anchor_text_len = max(1, local_anchor_text_len // 2)
                 logger.info(f"Reducing anchor text len to {local_anchor_text_len} for {pdf_orig_path}-{page_num}")
                 raise ValueError("Response exceeded model_max_context, cannot use this response")
 
             metrics.add_metrics(
-                server_input_tokens=base_response_data["usage"].get("prompt_tokens", 0),
-                server_output_tokens=base_response_data["usage"].get("completion_tokens", 0),
+                server_input_tokens=num_prompt_tokens,
+                server_output_tokens=num_completion_tokens,
             )
 
-            model_response_json = json.loads(base_response_data["choices"][0]["message"]["content"])
+            model_response_json = json.loads(request_output.outputs[0].text)
             page_response = PageResponse(**model_response_json)
 
             if not page_response.is_rotation_valid and attempt < MAX_RETRIES - 1:
@@ -277,8 +251,8 @@ async def process_page(args, worker_id: int, pdf_orig_path: str, pdf_local_path:
                 pdf_orig_path,
                 page_num,
                 page_response,
-                input_tokens=base_response_data["usage"].get("prompt_tokens", 0),
-                output_tokens=base_response_data["usage"].get("completion_tokens", 0),
+                input_tokens=num_prompt_tokens,
+                output_tokens=num_completion_tokens,
                 is_fallback=False,
             )
         except (ConnectionError, OSError, asyncio.TimeoutError) as e:
@@ -563,146 +537,29 @@ async def worker(args, work_queue: WorkQueue, semaphore, worker_id):
             semaphore.release()
 
 
-async def vllm_server_task(model_name_or_path, args, semaphore):
+async def initialize_engine(model_name_or_path, args):
+    """Initialize the AsyncLLMEngine with the specified model and configuration."""
+    global engine
+    
     # Check GPU memory, lower mem devices need a bit less KV cache space because the VLM takes additional memory
     gpu_memory = torch.cuda.get_device_properties(0).total_memory / (1024**3)  # Convert to GB
-    mem_fraction_arg = ["--gpu-memory-utilization", "0.80"] if gpu_memory < 60 else []
-
-    cmd = [
-        "vllm",
-        "serve",
-        model_name_or_path,
-        "--port",
-        str(BASE_SERVER_PORT),
-        "--disable-log-requests",
-        "--uvicorn-log-level",
-        "warning",
-        "--served-model-name",
-        "Qwen/Qwen2-VL-7B-Instruct",
-    ]
-    cmd.extend(mem_fraction_arg)
-
-    proc = await asyncio.create_subprocess_exec(
-        *cmd,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
+    gpu_memory_utilization = 0.80 if gpu_memory < 60 else 0.90
+    
+    # Create engine arguments
+    engine_args = AsyncEngineArgs(
+        model=model_name_or_path,
+        trust_remote_code=True,
+        dtype="auto",
+        gpu_memory_utilization=gpu_memory_utilization,
+        max_model_len=args.model_max_context,
+        disable_log_requests=True,
+        worker_use_ray=False,
+        served_model_name="Qwen/Qwen2-VL-7B-Instruct",
     )
-
-    # Ensure the subprocess is terminated on exit
-    def _kill_proc():
-        proc.terminate()
-
-    atexit.register(_kill_proc)
-
-    # Shared variables between tasks
-    last_running_req, last_queue_req = 0, 0
-    server_printed_ready_message = False
-    last_semaphore_release = time.time()
-
-    async def process_line(line):
-        nonlocal last_running_req, last_queue_req, last_semaphore_release, server_printed_ready_message
-        server_logger.info(line)
-
-        # if the server hasn't initialized yet, log all the lines to the main logger also, so that the user
-        # can see any warnings/errors more easily
-        if not server_printed_ready_message:
-            logger.info(line)
-
-        if "Detected errors during sampling" in line:
-            logger.error("Cannot continue, sampling errors detected, model is probably corrupt")
-            sys.exit(1)
-
-        if not server_printed_ready_message and ("The server is fired up and ready to roll!" in line or "Starting vLLM API server" in line):
-            server_printed_ready_message = True
-            last_semaphore_release = time.time()
-
-        match = re.search(r"Running: (\d+)", line)
-        if match:
-            last_running_req = int(match.group(1))
-
-        match = re.search(r"Waiting: (\d+)", line)
-        if match:
-            last_queue_req = int(match.group(1))
-            logger.info(f"vllm running req: {last_running_req} queue req: {last_queue_req}")
-
-    async def read_stream(stream):
-        while True:
-            line = await stream.readline()
-            if not line:
-                break
-            try:
-                line = line.decode("utf-8").rstrip()
-                await process_line(line)
-            except Exception as ex:
-                logger.warning(f"Got {ex} when reading log line from inference server, skipping")
-
-    async def timeout_task():
-        nonlocal last_running_req, last_queue_req, last_semaphore_release
-        try:
-            while True:
-                await asyncio.sleep(1)
-                if server_printed_ready_message and last_queue_req == 0 and time.time() - last_semaphore_release > 30 and semaphore.locked():
-                    semaphore.release()
-                    last_semaphore_release = time.time()
-                    logger.info("Semaphore released, allowing a worker to proceed.")
-        except asyncio.CancelledError:
-            pass  # Clean up if the task is cancelled
-
-    # Start tasks to read stdout, stderr, and handle timeout logic
-    stdout_task = asyncio.create_task(read_stream(proc.stdout))
-    stderr_task = asyncio.create_task(read_stream(proc.stderr))
-    timeout_task = asyncio.create_task(timeout_task())
-
-    try:
-        await proc.wait()
-    except asyncio.CancelledError:
-        logger.info("Got cancellation request for VLLM server")
-        proc.terminate()
-        raise
-
-    timeout_task.cancel()
-    await asyncio.gather(stdout_task, stderr_task, timeout_task, return_exceptions=True)
-
-
-async def vllm_server_host(model_name_or_path, args, semaphore):
-    MAX_RETRIES = 5
-    retry = 0
-
-    while retry < MAX_RETRIES:
-        await vllm_server_task(model_name_or_path, args, semaphore)
-        logger.warning("VLLM server task ended")
-        retry += 1
-
-    if retry >= MAX_RETRIES:
-        logger.error(f"Ended up starting the vllm server more than {retry} times, cancelling pipeline")
-        logger.error("")
-        logger.error(
-            "Please make sure vllm is installed according to the latest instructions here: https://docs.vllm.ai/en/stable/getting_started/installation/gpu.html"
-        )
-        sys.exit(1)
-
-
-async def vllm_server_ready():
-    max_attempts = 300
-    delay_sec = 1
-    url = f"http://localhost:{BASE_SERVER_PORT}/v1/models"
-
-    for attempt in range(1, max_attempts + 1):
-        try:
-            async with httpx.AsyncClient() as session:
-                response = await session.get(url)
-
-                if response.status_code == 200:
-                    logger.info("vllm server is ready.")
-                    return
-                else:
-                    logger.info(f"Attempt {attempt}: Unexpected status code {response.status_code}")
-        except Exception:
-            logger.warning(f"Attempt {attempt}: Please wait for vllm server to become ready...")
-
-        await asyncio.sleep(delay_sec)
-
-    raise Exception("vllm server did not become ready after waiting.")
+    
+    logger.info(f"Initializing AsyncLLMEngine with model: {model_name_or_path}")
+    engine = AsyncLLMEngine.from_engine_args(engine_args)
+    logger.info("AsyncLLMEngine initialized successfully")
 
 
 async def download_model(model_name_or_path: str):
@@ -1144,15 +1001,14 @@ async def main():
     if qsize == 0:
         logger.info("No work to do, exiting")
         return
+    # Initialize the AsyncLLMEngine
+    await initialize_engine(model_name_or_path, args)
+    
     # Create a semaphore to control worker access
     # We only allow one worker to move forward with requests, until the server has no more requests in its queue
     # This lets us get full utilization by having many workers, but also to be outputting dolma docs as soon as possible
     # As soon as one worker is no longer saturating the gpu, the next one can start sending requests
     semaphore = asyncio.Semaphore(1)
-
-    vllm_server = asyncio.create_task(vllm_server_host(model_name_or_path, args, semaphore))
-
-    await vllm_server_ready()
 
     metrics_task = asyncio.create_task(metrics_reporter(work_queue))
     cpu_monitor_task = asyncio.create_task(cpu_vs_wall(10))
@@ -1166,10 +1022,9 @@ async def main():
     # Wait for all worker tasks to finish
     await asyncio.gather(*worker_tasks)
 
-    # Wait for server to stop
+    # Shutdown resources
     process_pool.shutdown(wait=False)
 
-    vllm_server.cancel()
     metrics_task.cancel()
     cpu_monitor_task.cancel()
 
