@@ -171,6 +171,8 @@ async def generate_one(engine: AsyncLLMEngine, msgs: list[dict], sampling_params
 
     prompt = TextPrompt(prompt=prompt_data)
 
+    logger.info(f"prompt data: {prompt_data}")
+
     if mm_data is not None:
         prompt["multi_modal_data"] = mm_data
 
@@ -237,6 +239,7 @@ async def process_page(args, worker_id: int, pdf_orig_path: str, pdf_local_path:
                 server_output_tokens=num_completion_tokens,
             )
 
+            logger.info(f"Msg output '{request_output.outputs[0].text}'")
             model_response_json = json.loads(request_output.outputs[0].text)
             page_response = PageResponse(**model_response_json)
 
