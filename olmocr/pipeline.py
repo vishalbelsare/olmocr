@@ -1004,10 +1004,8 @@ async def main():
     await initialize_engine(model_name_or_path, args)
     
     # Create a semaphore to control worker access
-    # We only allow one worker to move forward with requests, until the server has no more requests in its queue
-    # This lets us get full utilization by having many workers, but also to be outputting dolma docs as soon as possible
-    # As soon as one worker is no longer saturating the gpu, the next one can start sending requests
-    semaphore = asyncio.Semaphore(1)
+    # TODO THIS DOES NOT WORK LIKE IN THE OLD PIPELINE WHICH WAS NICE BECAUSE IT PRIORITIZED ONE WORKER AT A TIME
+    semaphore = asyncio.Semaphore(args.workers)
 
     metrics_task = asyncio.create_task(metrics_reporter(work_queue))
     cpu_monitor_task = asyncio.create_task(cpu_vs_wall(10))
