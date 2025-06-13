@@ -161,8 +161,9 @@ async def generate_one(engine: AsyncLLMEngine, msgs: list[dict], sampling_params
 
     prompt_data = apply_hf_chat_template(
         tokenizer, # type: ignore
-        conversation=conversation,
+        conversation,
         chat_template=None, # Use default chat template
+        tools=None,
         add_generation_prompt=True,
         continue_final_message=False,
     )
