@@ -164,6 +164,7 @@ async def generate_one(engine: AsyncLLMEngine, msgs: list[dict], sampling_params
         conversation,
         chat_template=None, # Use default chat template
         tools=None,
+        model_config=model_config,
         add_generation_prompt=True,
         continue_final_message=False,
     )
