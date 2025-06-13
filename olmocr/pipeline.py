@@ -548,13 +548,11 @@ async def initialize_engine(model_name_or_path, args):
     # Create engine arguments
     engine_args = AsyncEngineArgs(
         model=model_name_or_path,
-        trust_remote_code=True,
+        trust_remote_code=False,
         dtype="auto",
         gpu_memory_utilization=gpu_memory_utilization,
-        max_model_len=args.model_max_context,
         disable_log_requests=True,
-        worker_use_ray=False,
-        served_model_name="Qwen/Qwen2-VL-7B-Instruct",
+        served_model_name="allenai/olmocr",
     )
     
     logger.info(f"Initializing AsyncLLMEngine with model: {model_name_or_path}")
