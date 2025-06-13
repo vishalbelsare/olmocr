@@ -33,7 +33,7 @@ from vllm import AsyncLLMEngine, SamplingParams, RequestOutput, TextPrompt
 from vllm.engine.arg_utils import AsyncEngineArgs
 from vllm.entrypoints.chat_utils import (ChatCompletionMessageParam,
                                          apply_hf_chat_template,
-                                         apply_mistral_chat_template,
+                                         resolve_chat_template_content_format,
                                          parse_chat_messages)
 
 from olmocr.check import (
@@ -156,8 +156,8 @@ async def build_page_query(local_pdf_path: str, page: int, target_longest_image_
 async def generate_one(engine: AsyncLLMEngine, msgs: list[dict], sampling_params: SamplingParams, idx: str) -> RequestOutput:
     tokenizer = await engine.get_tokenizer()
     model_config = await engine.get_model_config()
-
-    conversation, mm_data = parse_chat_messages(msgs, model_config, tokenizer) # type: ignore
+    content_format = resolve_chat_template_content_format(chat_template=None, tools=None, given_format="auto", tokenizer=tokenizer, model_config=model_config)
+    conversation, mm_data = parse_chat_messages(msgs, model_config, tokenizer, content_format) # type: ignore
 
     prompt_data = apply_hf_chat_template(
         tokenizer, # type: ignore
