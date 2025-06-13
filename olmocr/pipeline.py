@@ -157,10 +157,10 @@ async def generate_one(engine: AsyncLLMEngine, msgs: list[dict], sampling_params
     tokenizer = await engine.get_tokenizer()
     model_config = await engine.get_model_config()
 
-    conversation, mm_data = parse_chat_messages(msgs, model_config, tokenizer)
+    conversation, mm_data = parse_chat_messages(msgs, model_config, tokenizer) # type: ignore
 
     prompt_data = apply_hf_chat_template(
-        tokenizer,
+        tokenizer, # type: ignore
         conversation=conversation,
         chat_template=None, # Use default chat template
         add_generation_prompt=True,
@@ -200,13 +200,13 @@ async def process_page(args, worker_id: int, pdf_orig_path: str, pdf_local_path:
             local_anchor_text_len if not FORCE_NO_DOCUMENT_ANCHORING_BY_ATTEMPT[lookup_attempt] else -1,
             image_rotation=local_image_rotation,
         )
-        # Change temperature as number of attempts increases to overcome repetition issues at expense of quality
-        query["temperature"] = TEMPERATURE_BY_ATTEMPT[lookup_attempt]
 
         logger.info(f"Built page query for {pdf_orig_path}-{page_num}")
 
         try:
-            request_output = await generate_one(engine, query, SamplingParams(n=1, temperature=TEMPERATURE_BY_ATTEMPT[lookup_attempt]), f"{pdf_orig_path}-{worker_id}-{page_num}-{attempt}")
+            request_output = await generate_one(engine, query, 
+                                                SamplingParams(n=1, temperature=TEMPERATURE_BY_ATTEMPT[lookup_attempt],),
+                                                idx=f"{pdf_orig_path}-{worker_id}-{page_num}-{attempt}")
 
             if not request_output.finished:
                 raise ValueError("Request returned not finished")
@@ -447,12 +447,12 @@ async def worker(args, work_queue: WorkQueue, semaphore, worker_id):
             for task in dolma_tasks:
                 try:
                     result = task.result()
+
+                    if result is not None:
+                        dolma_docs.append(result)
                 except:
                     # some dolma doc creations may have failed
                     pass
-
-                if result is not None:
-                    dolma_docs.append(result)
 
             logger.info(f"Got {len(dolma_docs)} docs for {work_item.hash}")
 
@@ -879,11 +879,11 @@ async def main():
         cred_path = os.path.join(os.path.expanduser("~"), ".aws", "credentials")
         os.makedirs(os.path.dirname(cred_path), exist_ok=True)
         with open(cred_path, "w") as f:
-            f.write(os.environ.get("AWS_CREDENTIALS_FILE"))
+            f.write(os.environ.get("AWS_CREDENTIALS_FILE", ""))
         cred_path = os.path.join(os.path.expanduser("~"), ".gcs", "credentials")
         os.makedirs(os.path.dirname(cred_path), exist_ok=True)
         with open(cred_path, "w") as f:
-            f.write(os.environ.get("GOOGLE_APPLICATION_CREDENTIALS_FILE"))
+            f.write(os.environ.get("GOOGLE_APPLICATION_CREDENTIALS_FILE", ""))
         os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = cred_path
         workspace_s3 = boto3.client("s3")
         pdf_s3 = boto3.client("s3")
@@ -976,7 +976,7 @@ async def main():
         logger.info(f"Calculated items_per_group: {items_per_group} based on average pages per PDF: {avg_pages_per_pdf:.2f}")
 
         # Now call populate_queue
-        await work_queue.populate_queue(pdf_work_paths, items_per_group)
+        await work_queue.populate_queue(list(pdf_work_paths), items_per_group)
 
     if args.stats:
         print_stats(args, work_queue)
