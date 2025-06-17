@@ -89,7 +89,7 @@ model = sys.argv[5] if len(sys.argv) > 5 else None
 b = Beaker.from_env(default_workspace="ai2/olmocr")
 
 # Build the pipeline command with optional model parameter
-pipeline_cmd = "python -m olmocr.pipeline ./localworkspace --markdown --pdfs ./olmOCR-bench/bench_data/pdfs/**/*.pdf"
+pipeline_cmd = "python -m olmocr.pipeline --target_anchor_text_len -1 ./localworkspace --markdown --pdfs ./olmOCR-bench/bench_data/pdfs/**/*.pdf"
 if model:
     pipeline_cmd += f" --model {model}"
 
@@ -157,7 +157,7 @@ print("-------")
 print("")
 
 # Second experiment: Performance test job
-perf_pipeline_cmd = "python -m olmocr.pipeline ./localworkspace --markdown --pdfs s3://ai2-oe-data/jakep/olmocr/olmOCR-mix-0225/benchmark_set/*.pdf"
+perf_pipeline_cmd = "python -m olmocr.pipeline ./localworkspace --target_anchor_text_len -1 --markdown --pdfs s3://ai2-oe-data/jakep/olmocr/olmOCR-mix-0225/benchmark_set/*.pdf"
 if model:
     perf_pipeline_cmd += f" --model {model}"
 
