@@ -212,6 +212,149 @@ async def apost(url, json_data):
                 pass
 
 
+# Async streaming implementation of HTTP POST for OpenAI-compatible API
+# Handles Server-Sent Events (SSE) format when stream=True
+async def apost_stream(url, json_data):
+    parsed_url = urlparse(url)
+    host = parsed_url.hostname
+    port = parsed_url.port or 80
+    path = parsed_url.path or "/"
+
+    writer = None
+    try:
+        reader, writer = await asyncio.open_connection(host, port)
+
+        json_payload = json.dumps(json_data)
+        request = (
+            f"POST {path} HTTP/1.1\r\n"
+            f"Host: {host}\r\n"
+            f"Content-Type: application/json\r\n"
+            f"Content-Length: {len(json_payload)}\r\n"
+            f"Connection: close\r\n\r\n"
+            f"{json_payload}"
+        )
+        writer.write(request.encode())
+        await writer.drain()
+
+        # Read status line
+        status_line = await reader.readline()
+        if not status_line:
+            raise ConnectionError("No response from server")
+        status_parts = status_line.decode().strip().split(" ", 2)
+        if len(status_parts) < 2:
+            raise ValueError(f"Malformed status line: {status_line.decode().strip()}")
+        status_code = int(status_parts[1])
+
+        # Read headers
+        headers = {}
+        while True:
+            line = await reader.readline()
+            if line in (b"\r\n", b"\n", b""):
+                break
+            key, _, value = line.decode().partition(":")
+            headers[key.strip().lower()] = value.strip()
+
+        if status_code != 200:
+            # For error responses, read the full body and raise
+            if "content-length" in headers:
+                body_length = int(headers["content-length"])
+                error_body = await reader.readexactly(body_length)
+                raise ValueError(f"HTTP {status_code}: {error_body.decode()}")
+            else:
+                raise ValueError(f"HTTP {status_code}")
+
+        # Stream the response body for SSE format
+        buffer = b""
+        async for chunk in _read_chunks(reader):
+            buffer += chunk
+            
+            # Process complete lines
+            while b"\n" in buffer:
+                line, buffer = buffer.split(b"\n", 1)
+                line = line.strip()
+                
+                if not line:
+                    continue
+                    
+                # SSE format: "data: {...json...}"
+                if line.startswith(b"data: "):
+                    data_str = line[6:].decode("utf-8")
+                    
+                    # Check for end of stream
+                    if data_str == "[DONE]":
+                        return
+                        
+                    try:
+                        data = json.loads(data_str)
+                        yield data
+                    except json.JSONDecodeError as e:
+                        logger.warning(f"Failed to parse SSE data: {data_str}, error: {e}")
+                        continue
+
+    except Exception as e:
+        raise e
+    finally:
+        if writer is not None:
+            try:
+                writer.close()
+                await writer.wait_closed()
+            except:
+                pass
+
+
+# Helper function to read chunks from the stream
+async def _read_chunks(reader, chunk_size=8192):
+    while True:
+        chunk = await reader.read(chunk_size)
+        if not chunk:
+            break
+        yield chunk
+
+
+async def apost_streaming_completion(url, json_data):
+    """
+    Helper method that handles streaming chat completion requests.
+    Returns a response in the same format as the non-streaming API.
+    """
+    # Add stream=True to the request
+    streaming_query = json_data.copy()
+    streaming_query["stream"] = True
+    
+    # Collect all content chunks
+    full_content = ""
+    usage_data = None
+    
+    async for chunk in apost_stream(url, json_data=streaming_query):
+        # Extract content from the chunk
+        if "choices" in chunk and len(chunk["choices"]) > 0:
+            delta = chunk["choices"][0].get("delta", {})
+            if "content" in delta:
+                full_content += delta["content"]
+        
+        # Some providers send usage data in the final chunk
+        if "usage" in chunk:
+            usage_data = chunk["usage"]
+    
+    # Construct response in the expected format
+    response_data = {
+        "choices": [{
+            "message": {
+                "content": full_content,
+                "role": "assistant"
+            },
+            "finish_reason": "stop",
+            "index": 0
+        }],
+        "usage": usage_data or {
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0
+        }
+    }
+    
+    return response_data
+
+
 async def process_page(args, worker_id: int, pdf_orig_path: str, pdf_local_path: str, page_num: int) -> PageResult:
     COMPLETION_URL = f"http://localhost:{BASE_SERVER_PORT}/v1/chat/completions"
     MAX_RETRIES = args.max_page_retries
@@ -239,16 +382,8 @@ async def process_page(args, worker_id: int, pdf_orig_path: str, pdf_local_path:
         logger.info(f"Built page query for {pdf_orig_path}-{page_num}")
 
         try:
-            status_code, response_body = await apost(COMPLETION_URL, json_data=query)
-
-            if status_code == 400:
-                raise ValueError(f"Got BadRequestError from server: {response_body}, skipping this response")
-            elif status_code == 500:
-                raise ValueError(f"Got InternalServerError from server: {response_body}, skipping this response")
-            elif status_code != 200:
-                raise ValueError(f"Error http status {status_code}")
-
-            base_response_data = json.loads(response_body)
+            # Use streaming API
+            base_response_data = await apost_streaming_completion(COMPLETION_URL, json_data=query)
 
             if base_response_data["usage"]["total_tokens"] > args.model_max_context:
                 local_anchor_text_len = max(1, local_anchor_text_len // 2)
