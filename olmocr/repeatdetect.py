@@ -3,7 +3,7 @@ import re
 import string
 import time
 import unittest
-
+from typing import Literal
 
 class RepeatDetector:
     def __init__(self, max_ngram_size: int = 10):
