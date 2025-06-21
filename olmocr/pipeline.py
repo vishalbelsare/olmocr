@@ -336,7 +336,7 @@ async def apost_streaming_completion(url, json_data):
                 full_content += delta["content"]
                 repeat_detector.add_letters(delta["content"])
 
-        if any(ngram > 100 for ngram in repeat_detector.ngram_repeats()):
+        if any(ngram > 300 for ngram in repeat_detector.ngram_repeats()):
             logger.warning(f"Error, detected ngram repeat in generation {repeat_detector.ngram_repeats()}, aborting")
             finish_reason = "repeats"
             break
