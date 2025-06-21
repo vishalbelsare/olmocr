@@ -48,7 +48,7 @@ from olmocr.s3_utils import (
     get_s3_bytes_with_backoff,
     parse_s3_path,
 )
-from olmocr.repeatdetect import RepeatDetector
+from olmocr.repeatdetect import RepeatDetector, HynekRepetitionChecker
 from olmocr.version import VERSION
 from olmocr.work_queue import LocalWorkQueue, S3WorkQueue, WorkQueue
 
@@ -326,7 +326,7 @@ async def apost_streaming_completion(url, json_data):
     full_content = ""
     usage_data = None
     finish_reason = "stop"
-    repeat_detector = RepeatDetector()
+    repeat_detector = HynekRepetitionChecker()
 
     async for chunk in apost_stream(url, json_data=streaming_query):
         # Extract content from the chunk
@@ -334,13 +334,17 @@ async def apost_streaming_completion(url, json_data):
             delta = chunk["choices"][0].get("delta", {})
             if "content" in delta:
                 full_content += delta["content"]
-                repeat_detector.add_letters(delta["content"])
 
-        if any(ngram > 300 for ngram in repeat_detector.ngram_repeats()):
-            logger.warning(f"Error, detected ngram repeat in generation {repeat_detector.ngram_repeats()}, aborting")
-            finish_reason = "repeats"
-            break
-        
+                found_repeat = None
+                for letter in delta["content"]:
+                    if (found_repeat := repeat_detector.add_char(letter)) is not None:
+                        break
+
+                if found_repeat:
+                    logger.warning(f"Error, detected ngram repeat in generation {found_repeat}, aborting")
+                    finish_reason = "repeats"
+                    break
+
         # Some providers send usage data in the final chunk
         if "usage" in chunk:
             usage_data = chunk["usage"]

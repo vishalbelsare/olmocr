@@ -170,6 +170,116 @@ class BenchmarkRepeatDetect(unittest.TestCase):
 
         print(f"testLargeRandom took {end-start:0.0001f} seconds")
 
+# From Hynek Kydlicek @ HF
+class HynekRepetitionChecker:
+      """
+      Check for repeated lines and sentences in a text.
+      """
+      def __init__(self, min_line_repetitions=3, min_sentence_repetitions=5, min_char_repetition=350, check_lines=True, check_sentences=True, check_chars=True, min_sentence_length=50, min_line_length=8):
+            """
+            Initializes the RepetitionChecker.
+
+            Args:
+                min_repetitions (int): The number of times a line or sentence (after normalization)
+                                       must be seen to be flagged as a repetition.
+                check_lines (bool): Whether to check for repeated lines.
+                check_sentences (bool): Whether to check for repeated sentences.
+                min_sentence_length (int): Minimum character length for a normalized sentence string
+                                           (excluding the terminator) to be considered for repetition checking.
+            """
+
+            self.min_line_repetitions = min_line_repetitions
+            self.min_sentence_repetitions = min_sentence_repetitions
+            self.min_char_repetition = min_char_repetition
+            self.min_sentence_length = min_sentence_length
+            self.min_line_length = min_line_length
+
+            self.do_check_lines = check_lines
+            self.do_check_sentences = check_sentences
+            self.do_check_chars = check_chars
+
+            self._current_line_buffer = []
+            self._current_sentence_buffer = []
+            self._current_char_buffer = []
+            self._last_sentence_content = ""
+            self._last_line_content = ""
+            self._last_char_content = ""
+
+            self._line_reps = 0
+            self._sentence_reps = 0
+            self._char_reps = 0
+
+            self._sentence_terminators = {'.', '?', '!'}
+
+      def add_char(self, unigram: str) -> Literal["sentence", "line", "char"] | None:
+            """
+            Processes the next character and checks for repetitions.
+
+            Checks if the characters processed so far contain:
+              1. Repeated lines (normalized by stripping whitespace; newline characters themselves are delimiters, not content).
+              2. Repeated sentences (normalized by stripping whitespace; identified by '.', '?', or '!').
+
+            Args:
+                unigram (str): The next single character to process.
+
+            Returns:
+                "sentence": If a sentence repetition meeting the criteria is detected.
+                "line": If a line repetition meeting the criteria is detected (and no sentence repetition took precedence).
+                None: If no new repetition is detected with this character.
+            """
+            detected_repetition_type = None
+
+            # Add character to both buffers
+            self._current_line_buffer.append(unigram)
+            self._current_sentence_buffer.append(unigram)
+
+            # --- Sentence Check ---
+            if self.do_check_sentences and unigram in self._sentence_terminators:
+                # Sentence content is everything in the buffer *before* the current terminator, then stripped.
+                sentence_content = "".join(self._current_sentence_buffer)
+
+                if len(sentence_content) >= self.min_sentence_length and sentence_content == self._last_sentence_content:
+                    self._sentence_reps += 1
+                    if self._sentence_reps >= self.min_sentence_repetitions:
+                        detected_repetition_type = "sentence"
+                else:
+                    self._sentence_reps = 0
+                
+                # Reset sentence buffer after processing its end
+                self._current_sentence_buffer = []
+                self._last_sentence_content = sentence_content
+
+            # --- Unigram Check ---
+            if self.do_check_chars:
+                # Char content is everything in the buffer *before* the newline char, then stripped.
+                if unigram == self._last_char_content:
+                    self._char_reps += 1
+                    if self._char_reps >= self.min_char_repetition:
+                        detected_repetition_type = "char"
+                else:
+                    self._char_reps = 0
+                
+                # Reset char buffer after processing its end
+                self._last_char_content = unigram
+            
+
+            # --- Line Check ---
+            if self.do_check_lines and unigram == '\n' and len(self._current_line_buffer) > 2 and self._current_line_buffer[-2] != '\n':
+                # Line content is everything in the buffer *before* the newline char, then stripped.
+                line_content = "".join(self._current_line_buffer)
+
+                if line_content and line_content == self._last_line_content:
+                    self._line_reps += 1
+                    if self._line_reps >= self.min_line_repetitions and (not "|" in line_content or self._line_reps >= 3*self.min_line_repetitions) and (len(line_content) >= self.min_line_length or self._line_reps >= 4*self.min_line_repetitions):
+                        detected_repetition_type = "line"
+                else:
+                    self._line_reps = 0
+                
+                # Reset line buffer after processing its end
+                self._current_line_buffer = []
+                self._last_line_content = line_content
+            
+            return detected_repetition_type
 
 if __name__ == "__main__":
     unittest.main()
