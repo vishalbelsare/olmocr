@@ -72,6 +72,7 @@ console_handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(level
 logger.addHandler(file_handler)
 logger.addHandler(console_handler)
 server_logger.addHandler(file_handler)
+server_logger.addHandler(console_handler)
 
 # Quiet logs from pypdf
 logging.getLogger("pypdf").setLevel(logging.ERROR)
@@ -726,7 +727,7 @@ async def vllm_server_task(model_name_or_path, args, semaphore):
         model_name_or_path,
         "--port",
         str(BASE_SERVER_PORT),
-        "--disable-log-requests",
+        #"--disable-log-requests",
         "--uvicorn-log-level",
         "warning",
         "--served-model-name",
