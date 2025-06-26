@@ -582,6 +582,7 @@ async def vllm_server_task(model_name_or_path, args, semaphore):
         "warning",
         "--served-model-name",
         "Qwen/Qwen2-VL-7B-Instruct",
+        "kv_cache_dtype=fp8"
     ]
     cmd.extend(mem_fraction_arg)
 
