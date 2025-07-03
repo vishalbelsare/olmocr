@@ -58,7 +58,7 @@ GREEN = "#0fcb8c"
 # Create dataframe with OCR model data
 data = {
     MODEL_COLUMN_NAME: [
-        "GPT-4o",
+    #    "GPT-4o",
         "GPT-4o (Batch)",
         "Mistral OCR",
         "MinerU",
@@ -69,9 +69,9 @@ data = {
         "Qwen 2 VL",
         "Qwen 2.5 VL",
     ],
-    COST_COLUMN_NAME: [12480, 6240, 1000, 596, 499, 249, 1492, 178, 178, 178],  # Same cost as Ours  # Same cost as Ours
+    COST_COLUMN_NAME: [6240, 1000, 596, 499, 249, 1492, 178, 178, 178],  # Same cost as Ours  # Same cost as Ours
     PERF_COLUMN_NAME: [
-        69.9,  # GPT-4o (Anchored)
+    #    69.9,  # GPT-4o (Anchored)
         69.9,  # Same performance for batch
         72.0,  # Mistral OCR API
         61.5,  # MinerU
@@ -141,7 +141,7 @@ model_label_offsets = {
 df[OFFSET_COLUMN_NAME] = df[MODEL_COLUMN_NAME].map(model_label_offsets)
 
 # Create the plot
-plt.figure(figsize=(10, 6))
+plt.figure(figsize=(8, 6))  # Reduced width from 10 to 8 (20% narrower)
 
 # Plot each category
 categories = df[CATEGORY_COLUMN_NAME].unique()
@@ -172,9 +172,9 @@ for idx, row in df.iterrows():
         color=category_text_colors[row[CATEGORY_COLUMN_NAME]],
     )
 
-# Set up axes
+# Set up axes - reduced x-axis width by 20%
 plt.ylim(25, 85)  # Set y-axis limits from 25 to 85 to include Qwen2VL
-plt.xlim(100, 15000)
+plt.xlim(100, 12020)  # Reduced from 15000 to 12020 (20% narrower)
 plt.xscale("log")  # Use log scale for cost
 plt.grid(True, which="both", ls=":", color=TEAL, alpha=0.2)
 
@@ -194,7 +194,7 @@ def dollar_formatter(x, pos):
 
 # Set specific x-axis ticks with increased font size
 plt.gca().xaxis.set_major_formatter(ticker.FuncFormatter(dollar_formatter))
-plt.gca().set_xticks([100, 200, 300, 500, 1000, 2000, 3000, 5000, 10000])
+plt.gca().set_xticks([100, 200, 300, 500, 1000, 2000, 5000, 10000])
 plt.xticks(fontsize=12)  # Increased tick font size
 plt.yticks(fontsize=12)  # Increased tick font size
 
