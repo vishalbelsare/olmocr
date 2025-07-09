@@ -577,7 +577,7 @@ async def vllm_server_task(model_name_or_path, args, semaphore):
         "warning",
         "--served-model-name",
         "Qwen/Qwen2-VL-7B-Instruct",
-        "--mm_processor_kwargs",
+        "--mm-processor-kwargs",
         "{\"use_fast\": true}",
         "--tensor-parallel-size",
         str(args.tensor_parallel_size),
