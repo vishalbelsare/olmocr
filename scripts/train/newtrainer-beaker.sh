@@ -3,7 +3,7 @@
 set -e
 
 # Parse command line arguments
-CONFIG="olmocr/train/configs/qwen25_vl_b100_x1_default_image_1600_no_doc_anchor.yaml"
+CONFIG="olmocr/train/configs/qwen25_vl_b100_x1_default_image_1280_no_doc_anchor.yaml"
 SKIP_DOCKER_BUILD=false
 
 while [[ $# -gt 0 ]]; do
@@ -108,7 +108,7 @@ task_spec = TaskSpec(
         gpu_count=4,
         shared_memory="10GiB"
     ),
-    constraints=Constraints(cluster=["ai2/triton-cirrascale"]),
+    constraints=Constraints(cluster=["ai2/titan-cirrascale"]),
     result=ResultSpec(path="/noop-results"),
     env_vars=[
         EnvVar(name="LOG_FILTER_TYPE", value="local_rank0_only"),
