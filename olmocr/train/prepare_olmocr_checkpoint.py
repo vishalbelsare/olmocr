@@ -27,7 +27,7 @@ from tqdm import tqdm
 from olmocr.s3_utils import parse_s3_path
 
 # Hugging Face model ID for tokenizer files
-HF_MODEL_ID = "Qwen/Qwen2.5-VL-7B-Instruct"
+HF_MODEL_ID = "Qwen/Qwen2.5-VL-3B-Instruct"
 HF_BASE_URL = f"https://huggingface.co/{HF_MODEL_ID}/resolve/main"
 
 # Required tokenizer files to download from Hugging Face

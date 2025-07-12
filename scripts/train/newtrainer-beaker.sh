@@ -3,7 +3,7 @@
 set -e
 
 # Parse command line arguments
-CONFIG="olmocr/train/configs/qwen25_vl_b100_x1_default.yaml"
+CONFIG="olmocr/train/configs/qwen25_vl_b100_x1_default_image_1600_no_doc_anchor.yaml"
 SKIP_DOCKER_BUILD=false
 
 while [[ $# -gt 0 ]]; do
@@ -105,10 +105,10 @@ task_spec = TaskSpec(
         preemptible=False,
     ),
     resources=TaskResources(
-        gpu_count=1,
+        gpu_count=4,
         shared_memory="10GiB"
     ),
-    constraints=Constraints(cluster=["ai2/titan-cirrascale"]),
+    constraints=Constraints(cluster=["ai2/triton-cirrascale"]),
     result=ResultSpec(path="/noop-results"),
     env_vars=[
         EnvVar(name="LOG_FILTER_TYPE", value="local_rank0_only"),
@@ -116,7 +116,7 @@ task_spec = TaskSpec(
         EnvVar(name="BEAKER_USER_ID", value=beaker_user),
         EnvVar(name="AWS_ACCESS_KEY_ID", secret="S2_AWS_ACCESS_KEY_ID"),
         EnvVar(name="AWS_SECRET_ACCESS_KEY", secret="S2_AWS_SECRET_ACCESS_KEY"),
-        EnvVar(name="WANDB_API_KEY", secret="JAKE_WANDB_API_KEY")
+        EnvVar(name="WANDB_API_KEY", secret="AMANR_WANDB_API_KEY")
     ],
     datasets=[
         DataMount.new(mount_path="/weka/oe-data-default", weka="oe-data-default"),

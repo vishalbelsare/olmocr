@@ -2,11 +2,11 @@
 
 # Project metadata
 project_name: olmocr-qwen-vl-training
-run_name: qwen2.5-vl-7b-finetune-default_image1280_no_doc_anchor
+run_name: qwen2.5-vl-3b-finetune-default_image1280_no_doc_anchor
 
 # Model configuration
 model:
-  name: Qwen/Qwen2.5-VL-7B-Instruct
+  name: Qwen/Qwen2.5-VL-3B-Instruct
   trust_remote_code: true
   torch_dtype: bfloat16
   use_flash_attention: true
@@ -55,9 +55,8 @@ dataset:
       pipeline: *basic_pipeline
 
 
-# Training configuration
 training:
-  output_dir: /weka/oe-data-default/jakep/olmocr-trainer/
+  output_dir: /weka/oe-data-default/amanr/olmocr-trainer/
   num_train_epochs: 1
   
   # Batch size and accumulation

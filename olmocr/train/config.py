@@ -122,7 +122,7 @@ class DatasetConfig:
 class ModelConfig:
     """Configuration for model."""
 
-    name: str = "Qwen/Qwen2.5-VL-7B-Instruct"
+    name: str = "Qwen/Qwen2.5-VL-3B-Instruct"
     trust_remote_code: bool = False
 
     # Model initialization
