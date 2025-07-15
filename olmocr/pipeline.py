@@ -582,6 +582,7 @@ async def vllm_server_task(model_name_or_path, args, semaphore):
         str(args.tensor_parallel_size),
         "--data-parallel-size",
         str(args.data_parallel_size),
+        "--kv-cache-dtype", "fp8"
     ]
 
     proc = await asyncio.create_subprocess_exec(
