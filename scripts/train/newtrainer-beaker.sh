@@ -3,7 +3,7 @@
 set -e
 
 # Parse command line arguments
-CONFIG="olmocr/train/configs/qwen25_vl_b100_x1_default_image_1280_no_doc_anchor.yaml"
+CONFIG="olmocr/train/configs/qwen25_vl_b100_x1_default_image_1600_no_doc_anchor.yaml"
 SKIP_DOCKER_BUILD=false
 
 while [[ $# -gt 0 ]]; do
