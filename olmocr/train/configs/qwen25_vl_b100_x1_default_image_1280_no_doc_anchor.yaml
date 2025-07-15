@@ -2,7 +2,7 @@
 
 # Project metadata
 project_name: olmocr-qwen-vl-training
-run_name: qwen2.5-vl-3b-finetune-default_image1280_no_doc_anchor
+run_name: qwen2.5-vl-3b-finetune-default_image1280_no_doc_anchor-2
 
 # Model configuration
 model:
