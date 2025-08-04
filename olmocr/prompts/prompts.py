@@ -16,6 +16,21 @@ def build_openai_silver_data_prompt(base_text: str) -> str:
         f"RAW_TEXT_START\n{base_text}\nRAW_TEXT_END"
     )
 
+def build_openai_silver_data_prompt_v2(base_text: str) -> str:
+    return (
+        f"Below is the image of one page of a PDF document, as well as some raw textual content that was previously extracted for it that includes position information for each image and block of text (The origin [0x0] of the coordinates is in the lower left corner of the image). "
+        f"Just return the plain text representation of this document as if you were reading it naturally.\n"
+        f"Turn equations into a LaTeX representation, make sure to use \\( and \\) as a delimiter for inline math, and \\[ and \\] for block math.\n"
+        f"Convert tables into HTML format. Remove the headers and footers, but keep references and footnotes.\n"
+        f"Read any natural handwriting.\n"
+        f"If there are any figures or charts, label them with the following markdown syntax ![Alt text describing the contents of the figure](page_startx_starty_width_height.png)"
+        f"This is likely one page out of several in the document, so be sure to preserve any sentences that come from the previous page, or continue onto the next page, exactly as they are.\n"
+        f"If there is no text at all that you think you should read, you can output null.\n"
+        f"Do not hallucinate.\n"
+        f"RAW_TEXT_START\n{base_text}\nRAW_TEXT_END"
+    )
+
+
 
 @dataclass(frozen=True)
 class PageResponse:

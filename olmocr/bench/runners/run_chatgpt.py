@@ -15,6 +15,7 @@ from olmocr.prompts.prompts import (
     build_finetuning_prompt,
     build_openai_silver_data_prompt,
     openai_response_format_schema,
+    build_openai_silver_data_prompt_v2
 )
 
 
@@ -24,7 +25,7 @@ def run_chatgpt(
     model: str = "gpt-4o-2024-08-06",
     temperature: float = 0.1,
     target_longest_image_dim: int = 2048,
-    prompt_template: Literal["full", "full_no_document_anchoring", "basic", "finetune"] = "finetune",
+    prompt_template: Literal["full", "full_no_document_anchoring", "basic", "finetune", "fullv2"] = "finetune",
     response_template: Literal["plain", "json"] = "json",
 ) -> str:
     """
@@ -55,6 +56,8 @@ def run_chatgpt(
         prompt = build_finetuning_prompt(anchor_text)
     elif prompt_template == "basic":
         prompt = build_basic_prompt()
+    elif prompt_template == "fullv2":
+        prompt = build_openai_silver_data_prompt_v2(anchor_text)
     else:
         raise ValueError("Unknown prompt template")
 
