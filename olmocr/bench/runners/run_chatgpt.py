@@ -73,7 +73,8 @@ def run_chatgpt(
             }
         ],
         temperature=temperature,
-        max_tokens=3000,
+        max_completion_tokens=10000,
+        reasoning_effort="low",
         response_format=openai_response_format_schema() if response_template == "json" else None,
     )
 
