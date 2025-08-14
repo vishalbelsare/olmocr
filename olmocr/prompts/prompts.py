@@ -30,6 +30,35 @@ def build_openai_silver_data_prompt_v2(base_text: str) -> str:
         f"RAW_TEXT_START\n{base_text}\nRAW_TEXT_END"
     )
 
+def build_openai_silver_data_prompt_v2_simple(page_width: int, page_height: int) -> str:
+    return (
+        f"Attached is the image of one page of a PDF document."
+        f"Just return the plain text representation of this document as if you were reading it naturally.\n"
+        f"Turn equations and math symbols into a LaTeX representation, make sure to use \\( and \\) as a delimiter for inline math, and \\[ and \\] for block math. Always prefer LaTeX syntax instead of using unicode math symbols.\n"
+        f"Convert tables into HTML format. Remove the headers and footers, but keep references and footnotes.\n"
+        f"Read any natural handwriting.\n"
+        f"If there are any figures or charts, label them with the following markdown syntax ![Alt text describing the contents of the figure](page_startx_starty_width_height.png)"
+        f"This is likely one page out of several in the document, so be sure to preserve any sentences that come from the previous page, or continue onto the next page, exactly as they are.\n"
+        f"If there is no text at all that you think you should read, you can output null.\n"
+        f"Do not hallucinate.\n"
+        f"Page width: {page_width}, Page height: {page_height}"
+    )
+
+def build_openai_silver_data_prompt_v3_simple(page_width: int, page_height: int) -> str:
+    return (
+        f"Attached is the image of one page of a PDF document."
+        f"Just return the plain text representation of this document as if you were reading it naturally.\n"
+        f"Turn equations and math symbols into a LaTeX representation, make sure to use \\( and \\) as a delimiter for inline math, and \\[ and \\] for block math. Do NOT use ascii or unicode math symbols such as ∈ ∉ ⊂ ⊃ ⊆ ⊇ ∅ ∪ ∩ ∀ ∃ ¬, just use LaTeX syntax, ex  \( \in \\notin \subset \supset \subseteq \) etc. \n"
+        f"Convert tables into HTML format. Keep the syntax simple, but use <th> for header rows, and use rowspan and colspans appropriately. \n"
+        f"Remove the headers and footers, but keep references and footnotes.\n"
+        f"Read any natural handwriting.\n"
+        f"If there are any figures or charts, label them with the following markdown syntax ![Alt text describing the contents of the figure](page_startx_starty_width_height.png)"
+        f"This is likely one page out of several in the document, so be sure to preserve any sentences that come from the previous page, or continue onto the next page, exactly as they are.\n"
+        f"If there is no text at all that you think you should read, you can output null.\n"
+        f"Do not hallucinate.\n"
+        f"Page width: {page_width}, Page height: {page_height}"
+    )
+
 
 
 @dataclass(frozen=True)
