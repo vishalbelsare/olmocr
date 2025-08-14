@@ -48,8 +48,8 @@ def build_openai_silver_data_prompt_v3_simple(page_width: int, page_height: int)
     return (
         f"Attached is the image of one page of a PDF document."
         f"Just return the plain text representation of this document as if you were reading it naturally.\n"
-        f"Turn equations and math symbols into a LaTeX representation, make sure to use \\( and \\) as a delimiter for inline math, and \\[ and \\] for block math. Do NOT use ascii or unicode math symbols such as ∈ ∉ ⊂ ⊃ ⊆ ⊇ ∅ ∪ ∩ ∀ ∃ ¬, just use LaTeX syntax, ex  \( \in \\notin \subset \supset \subseteq \) etc. \n"
-        f"Convert tables into HTML format. Keep the syntax simple, but use <th> for header rows, and use rowspan and colspans appropriately. \n"
+        f"Turn equations and math symbols into a LaTeX representation, make sure to use \\( and \\) as a delimiter for inline math, and \\[ and \\] for block math. Do NOT use ascii or unicode math symbols such as ∈ ∉ ⊂ ⊃ ⊆ ⊇ ∅ ∪ ∩ ∀ ∃ ¬, just use LaTeX syntax, ex  \\( \\in \\) \\( \\notin \\) etc. If you were going to surround a math expression in $ symbols, surround it with \( \) instead.\n"
+        f"Convert tables into HTML format. Keep the syntax simple, but use <th> for header rows, and use rowspan and colspans appropriately. Don't use <br> inside of table cells, just split that into new rows as needed. Do NOT use LaTeX \\begin{{tabular}} table syntax. \n"
         f"Remove the headers and footers, but keep references and footnotes.\n"
         f"Read any natural handwriting.\n"
         f"If there are any figures or charts, label them with the following markdown syntax ![Alt text describing the contents of the figure](page_startx_starty_width_height.png)"
