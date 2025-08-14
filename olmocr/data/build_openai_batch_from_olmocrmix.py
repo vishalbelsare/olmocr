@@ -103,7 +103,7 @@ def process_single_pdf(pdf_path: Path, base_dir: Path) -> Optional[Tuple[Dict[st
             "method": "POST",
             "url": "/v1/chat/completions",
             "body": {
-                "model": "gpt-4o-2024-08-06",
+                "model": "gpt-4.1",
                 "messages": [
                     {
                         "role": "user",
@@ -114,9 +114,7 @@ def process_single_pdf(pdf_path: Path, base_dir: Path) -> Optional[Tuple[Dict[st
                     }
                 ],
                 "temperature": 0.1,
-                "max_tokens": 6000,
-                "logprobs": True,
-                "top_logprobs": 5,
+                "max_completion_tokens": 12000,
                 "response_format": openai_response_format_schema(),
             },
         }
