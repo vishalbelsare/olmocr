@@ -628,7 +628,7 @@ def submit_beaker_job(args):
 
     # Create the experiment spec
     experiment_spec = ExperimentSpec(
-        budget="ai2/oe-data",
+        budget="ai2/oe-base",
         description=task_name,
         tasks=[
             TaskSpec(

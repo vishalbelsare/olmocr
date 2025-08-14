@@ -1,14 +1,12 @@
 import asyncio
 import datetime
-import hashlib
 import unittest
-from typing import Dict, List
-from unittest.mock import Mock, call, patch
+from unittest.mock import Mock, patch
 
 from botocore.exceptions import ClientError
 
 # Import the classes we're testing
-from olmocr.work_queue import S3WorkQueue, WorkItem
+from olmocr.work_queue import S3Backend, WorkItem, WorkQueue
 
 
 class TestS3WorkQueue(unittest.TestCase):
@@ -16,7 +14,8 @@ class TestS3WorkQueue(unittest.TestCase):
         """Set up test fixtures before each test method."""
         self.s3_client = Mock()
         self.s3_client.exceptions.ClientError = ClientError
-        self.work_queue = S3WorkQueue(self.s3_client, "s3://test-bucket/workspace")
+        self.backend = S3Backend(self.s3_client, "s3://test-bucket/workspace")
+        self.work_queue = WorkQueue(self.backend)
         self.sample_paths = [
             "s3://test-bucket/data/file1.pdf",
             "s3://test-bucket/data/file2.pdf",
@@ -35,18 +34,18 @@ class TestS3WorkQueue(unittest.TestCase):
         ]
 
         # Hash should be the same regardless of order
-        hash1 = S3WorkQueue._compute_workgroup_hash(paths)
-        hash2 = S3WorkQueue._compute_workgroup_hash(reversed(paths))
+        hash1 = WorkQueue._compute_workgroup_hash(paths)
+        hash2 = WorkQueue._compute_workgroup_hash(reversed(paths))
         self.assertEqual(hash1, hash2)
 
     def test_init(self):
-        """Test initialization of S3WorkQueue"""
+        """Test initialization of S3Backend"""
         client = Mock()
-        queue = S3WorkQueue(client, "s3://test-bucket/workspace/")
+        backend = S3Backend(client, "s3://test-bucket/workspace/")
 
-        self.assertEqual(queue.workspace_path, "s3://test-bucket/workspace")
-        self.assertEqual(queue._index_path, "s3://test-bucket/workspace/work_index_list.csv.zstd")
-        self.assertEqual(queue._output_glob, "s3://test-bucket/workspace/results/*.jsonl")
+        self.assertEqual(backend.workspace_path, "s3://test-bucket/workspace")
+        self.assertEqual(backend._index_path, "s3://test-bucket/workspace/work_index_list.csv.zstd")
+        self.assertEqual(backend._output_glob, "s3://test-bucket/workspace/done_flags/*.flag")
 
     def asyncSetUp(self):
         """Set up async test fixtures"""
@@ -87,7 +86,7 @@ class TestS3WorkQueue(unittest.TestCase):
 
                 # Verify format of uploaded lines
                 for line in lines:
-                    parts = line.split(",")
+                    parts = WorkQueue._decode_csv_row(line)
                     self.assertGreaterEqual(len(parts), 2)  # Hash + at least one path
                     self.assertEqual(len(parts[0]), 40)  # SHA1 hash length
 
@@ -98,8 +97,8 @@ class TestS3WorkQueue(unittest.TestCase):
         new_paths = ["s3://test-bucket/data/new1.pdf"]
 
         # Create existing index content
-        existing_hash = S3WorkQueue._compute_workgroup_hash(existing_paths)
-        existing_line = f"{existing_hash},{existing_paths[0]}"
+        existing_hash = WorkQueue._compute_workgroup_hash(existing_paths)
+        existing_line = WorkQueue._encode_csv_row([existing_hash] + existing_paths)
 
         with patch("olmocr.work_queue.download_zstd_csv", return_value=[existing_line]):
             with patch("olmocr.work_queue.upload_zstd_csv") as mock_upload:
@@ -115,17 +114,17 @@ class TestS3WorkQueue(unittest.TestCase):
         """Test queue initialization"""
         # Mock work items and completed items
         work_paths = ["s3://test/file1.pdf", "s3://test/file2.pdf"]
-        work_hash = S3WorkQueue._compute_workgroup_hash(work_paths)
-        work_line = f"{work_hash},{work_paths[0]},{work_paths[1]}"
+        work_hash = WorkQueue._compute_workgroup_hash(work_paths)
+        work_line = WorkQueue._encode_csv_row([work_hash] + work_paths)
 
-        completed_items = [f"s3://test-bucket/workspace/results/output_{work_hash}.jsonl"]
+        completed_items = [f"s3://test-bucket/workspace/done_flags/done_{work_hash}.flag"]
 
         with patch("olmocr.work_queue.download_zstd_csv", return_value=[work_line]):
             with patch("olmocr.work_queue.expand_s3_glob", return_value=completed_items):
-                await self.work_queue.initialize_queue()
+                count = await self.work_queue.initialize_queue()
 
                 # Queue should be empty since all work is completed
-                self.assertTrue(self.work_queue._queue.empty())
+                self.assertEqual(count, 0)
 
     @async_test
     async def test_is_completed(self):
@@ -134,11 +133,11 @@ class TestS3WorkQueue(unittest.TestCase):
 
         # Test completed work
         self.s3_client.head_object.return_value = {"LastModified": datetime.datetime.now(datetime.timezone.utc)}
-        self.assertTrue(await self.work_queue.is_completed(work_hash))
+        self.assertTrue(await self.backend.is_completed(work_hash))
 
         # Test incomplete work
         self.s3_client.head_object.side_effect = ClientError({"Error": {"Code": "404", "Message": "Not Found"}}, "HeadObject")
-        self.assertFalse(await self.work_queue.is_completed(work_hash))
+        self.assertFalse(await self.backend.is_completed(work_hash))
 
     @async_test
     async def test_get_work(self):
@@ -154,8 +153,8 @@ class TestS3WorkQueue(unittest.TestCase):
 
         # Verify lock file was created
         self.s3_client.put_object.assert_called_once()
-        bucket, key = self.s3_client.put_object.call_args[1]["Bucket"], self.s3_client.put_object.call_args[1]["Key"]
-        self.assertTrue(key.endswith(f"output_{work_item.hash}.jsonl"))
+        key = self.s3_client.put_object.call_args[1]["Key"]
+        self.assertTrue(key.endswith(f"worker_{work_item.hash}.lock"))
 
     @async_test
     async def test_get_work_completed(self):
@@ -209,10 +208,17 @@ class TestS3WorkQueue(unittest.TestCase):
 
         await self.work_queue.mark_done(work_item)
 
+        # Verify done flag was created and lock file was deleted
+        # Check put_object was called for done flag
+        put_calls = self.s3_client.put_object.call_args_list
+        self.assertEqual(len(put_calls), 1)
+        done_flag_key = put_calls[0][1]["Key"]
+        self.assertTrue(done_flag_key.endswith(f"done_{work_item.hash}.flag"))
+
         # Verify lock file was deleted
         self.s3_client.delete_object.assert_called_once()
-        bucket, key = self.s3_client.delete_object.call_args[1]["Bucket"], self.s3_client.delete_object.call_args[1]["Key"]
-        self.assertTrue(key.endswith(f"output_{work_item.hash}.jsonl"))
+        key = self.s3_client.delete_object.call_args[1]["Key"]
+        self.assertTrue(key.endswith(f"worker_{work_item.hash}.lock"))
 
     @async_test
     async def test_paths_with_commas(self):
@@ -235,8 +241,11 @@ class TestS3WorkQueue(unittest.TestCase):
                         # Initialize a fresh queue from these lines
                         await self.work_queue.initialize_queue()
 
-                        # Mock ClientError for head_object (file doesn't exist)
-                        self.s3_client.head_object.side_effect = ClientError({"Error": {"Code": "404", "Message": "Not Found"}}, "HeadObject")
+                        # Mock ClientError for head_object (file doesn't exist) - need to handle multiple calls
+                        self.s3_client.head_object.side_effect = [
+                            ClientError({"Error": {"Code": "404", "Message": "Not Found"}}, "HeadObject"),  # done flag check
+                            ClientError({"Error": {"Code": "404", "Message": "Not Found"}}, "HeadObject"),  # worker lock check
+                        ]
 
                         # Get a work item
                         work_item = await self.work_queue.get_work()

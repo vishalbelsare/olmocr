@@ -5,13 +5,11 @@ import re
 from abc import ABC, abstractmethod
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass, fields
-from functools import reduce
 from io import BytesIO
 from os import PathLike
 from pathlib import Path
 from typing import (
     Any,
-    Callable,
     Dict,
     List,
     Optional,
@@ -88,8 +86,8 @@ class PipelineStep(ABC):
     """Abstract base class for pipeline steps."""
 
     @abstractmethod
-    def __call__(self, sample: Sample) -> Sample:
-        """Process a sample and return the modified sample."""
+    def __call__(self, sample: Sample) -> Optional[Sample]:
+        """Process a sample and return the modified sample, or None to skip this sample."""
         ...
 
 
@@ -142,6 +140,9 @@ class BaseMarkdownPDFDataset(Dataset):
 
                     pbar.update(1)
 
+        # Sort samples by markdown path for consistent ordering across runs
+        self.samples.sort(key=lambda x: x["markdown_path"])
+
         logger.info(f"Found {valid_count} valid markdown-PDF pairs")
 
         if invalid_pdfs:
@@ -154,7 +155,7 @@ class BaseMarkdownPDFDataset(Dataset):
     def __len__(self) -> int:
         return len(self.samples)
 
-    def __getitem__(self, idx: int) -> Dict[str, Any]:
+    def __getitem__(self, idx: int) -> Optional[Dict[str, Any]]:
         """
         Get a single sample from the dataset.
 
@@ -164,12 +165,18 @@ class BaseMarkdownPDFDataset(Dataset):
                 - 'pdf_path': Path to the PDF file
 
             Additional fields will be added by pipeline steps.
+            Returns None if any pipeline step returns None.
         """
         # Start with basic sample info
         sample = self.samples[idx].copy()
 
-        # Apply pipeline steps using reduce
-        return reduce(lambda s, f: f(s), self.pipeline_steps, sample)
+        # Apply pipeline steps, returning None if any step returns None
+        for step in self.pipeline_steps:
+            sample = step(sample)
+            if sample is None:
+                return None
+
+        return sample
 
 
 @dataclass(frozen=True, slots=True)
@@ -189,10 +196,10 @@ class FrontMatterParser(PipelineStep):
         if markdown_content.startswith("---\n"):
             try:
                 # Find the closing --- delimiter
-                end_index = markdown_content.find("\n---\n", 4)
+                end_index = markdown_content.find("\n---", 4)
                 if end_index != -1:
                     front_matter_str = markdown_content[4:end_index]
-                    text = markdown_content[end_index + 5 :].strip()
+                    text = markdown_content[end_index + 4 :].strip()
 
                     # Parse YAML
                     front_matter = yaml.safe_load(front_matter_str) or {}
@@ -275,7 +282,6 @@ class PDFRenderer(PipelineStep):
     """Pipeline step that renders PDF to image."""
 
     target_longest_image_dim: int
-    image_transform: Optional[Callable] = None
 
     def __call__(self, sample: Sample) -> Sample:
         """Render PDF to image."""
@@ -283,10 +289,6 @@ class PDFRenderer(PipelineStep):
         base64_png = render_pdf_to_base64png(str(sample["pdf_path"]), page_num=1, target_longest_image_dim=self.target_longest_image_dim)
         png_bytes = base64.b64decode(base64_png)
         image = Image.open(BytesIO(png_bytes))
-
-        # Apply transform if provided
-        if self.image_transform:
-            image = self.image_transform(image)
 
         # Update sample
         sample["image"] = image
@@ -358,7 +360,7 @@ rotation_correction: {page_data.rotation_correction}
 is_table: {page_data.is_table}
 is_diagram: {page_data.is_diagram}
 ---
-{page_data.natural_text}
+{page_data.natural_text if page_data.natural_text is not None and len(page_data.natural_text.strip()) > 0 else ""}
 """.strip()
         )
 
@@ -433,18 +435,215 @@ class LatexBracketNormalizer(PipelineStep):
 
 
 @dataclass(frozen=True, slots=True)
+class RotationAugmentation(PipelineStep):
+    """Pipeline step that randomly rotates images for augmentation."""
+
+    probability: float = 0.5  # Probability of applying rotation
+
+    def __call__(self, sample: Sample) -> Optional[Sample]:
+        """Randomly rotate image and update rotation metadata."""
+        # Only proceed with given probability
+        if np.random.random() > self.probability:
+            return sample
+
+        # Check if image exists
+        if "image" not in sample:
+            return sample
+
+        # Check if page_data exists (we need to update it)
+        if "page_data" not in sample:
+            return sample
+
+        # Randomly choose a rotation (90, 180, or 270 degrees)
+        rotation_degrees = np.random.choice([90, 180, 270])
+
+        # Apply rotation to image
+        image = sample["image"]
+        if rotation_degrees == 90:
+            transpose = Image.Transpose.ROTATE_90
+        elif rotation_degrees == 180:
+            transpose = Image.Transpose.ROTATE_180
+        else:  # 270
+            transpose = Image.Transpose.ROTATE_270
+
+        rotated_image = image.transpose(transpose)
+        sample["image"] = rotated_image
+
+        # Update page_data
+        page_data = sample["page_data"]
+
+        # Create new PageResponse with updated rotation info
+        # The rotation_correction should be the inverse of what we applied
+        # If we rotated 90 clockwise, we need 270 counter-clockwise to correct it
+        if rotation_degrees == 90:
+            correction = 270
+        elif rotation_degrees == 180:
+            correction = 180
+        else:  # 270
+            correction = 90
+
+        from olmocr.prompts.prompts import PageResponse
+
+        new_page_data = PageResponse(
+            primary_language=page_data.primary_language,
+            is_rotation_valid=False,  # Mark as invalid since we rotated it
+            rotation_correction=correction,  # The correction needed to fix it
+            is_table=page_data.is_table,
+            is_diagram=page_data.is_diagram,
+            natural_text=page_data.natural_text,
+        )
+
+        sample["page_data"] = new_page_data
+        return sample
+
+
+@dataclass(frozen=True, slots=True)
+class FilterOutRotatedDocuments(PipelineStep):
+    """Pipeline step that filters out documents with rotation issues."""
+
+    def __call__(self, sample: Sample) -> Optional[Sample]:
+        """Filter out samples where rotation is invalid or rotation correction is needed."""
+        # Check if page_data exists
+        if "page_data" not in sample:
+            return sample
+
+        page_data = sample["page_data"]
+
+        # Check if page_data has the required attributes
+        if not hasattr(page_data, "is_rotation_valid") or not hasattr(page_data, "rotation_correction"):
+            return sample
+
+        # Filter out if rotation is invalid or rotation correction is not 0
+        if page_data.is_rotation_valid is False or page_data.rotation_correction != 0:
+            return None
+
+        return sample
+
+
+@dataclass(frozen=True, slots=True)
+class AugraphyBasicAugmentations(PipelineStep):
+    """Pipeline step that applies a decent selection of augraphy augmentations to the data"""
+
+    probability: float = 0.5  # Overall probability of applying any augmentation
+
+    def __call__(self, sample: Sample) -> Optional[Sample]:
+        """Apply augraphy augmentations to the image in the sample."""
+        # Check that the image data exists
+        if "image" not in sample:
+            return sample
+
+        # Import opencv only here
+        import cv2
+
+        image = sample["image"]
+
+        # Skip all augmentations based on overall probability
+        if np.random.random() > self.probability:
+            return sample
+
+        # Convert from PIL to BGR for OpenCV/Augraphy
+        image_numpy = np.array(image)
+        if len(image_numpy.shape) < 3:
+            image_bgr = cv2.cvtColor(image_numpy, cv2.COLOR_GRAY2BGR)
+        else:
+            image_bgr = cv2.cvtColor(image_numpy, cv2.COLOR_RGB2BGR)
+
+        # Apply a basic augraphy pipeline
+        from augraphy import (
+            AugraphyPipeline,
+            Brightness,
+            InkBleed,
+            InkMottling,
+            InkShifter,
+            Jpeg,
+            LowInkPeriodicLines,
+            LowInkRandomLines,
+            OneOf,
+        )
+
+        # Apply geometric transformations first, maintaing scale
+        if np.random.random() < 0.50:
+            # Get dimensions
+            height, width = image_bgr.shape[:2]
+
+            # Random parameters for geometric transformations
+            angle = max(min(np.random.standard_normal(), 3), -3)  # Small rotation range
+            scale = np.random.uniform(0.95, 1.05)  # Small scale range
+            tx = np.random.uniform(-0.02, 0.02) * width  # Translation as fraction of width
+            ty = np.random.uniform(-0.02, 0.02) * height  # Translation as fraction of height
+
+            # Calculate center point
+            center = (width / 2, height / 2)
+
+            # Create transformation matrix
+            M = cv2.getRotationMatrix2D(center, angle, scale)
+
+            # Add translation
+            M[0, 2] += tx
+            M[1, 2] += ty
+
+            # Apply transformation
+            image_bgr = cv2.warpAffine(
+                image_bgr,
+                M,
+                (width, height),
+                flags=cv2.INTER_LINEAR,
+                borderMode=cv2.BORDER_CONSTANT,
+                borderValue=(255, 255, 255),  # White background for documents
+            )
+
+        ink_phase = [
+            OneOf([InkBleed(p=1), LowInkRandomLines(p=1), LowInkPeriodicLines(p=1), InkMottling(p=1), InkShifter(p=1, text_shift_scale_range=(10, 15))], p=0.2),
+        ]
+
+        paper_phase = [OneOf([Brightness(p=0.2), Jpeg(p=1)])]
+
+        post_phase = [
+            # Empty on purpose or else augmentations are too strong
+        ]
+
+        augmentation_pipeline = AugraphyPipeline(ink_phase=ink_phase, paper_phase=paper_phase, post_phase=post_phase)
+
+        # Apply augmentations
+        augmented_image_bgr = augmentation_pipeline(image_bgr)
+
+        # Convert back to RGB and then to PIL format
+        augmented_image_rgb = cv2.cvtColor(augmented_image_bgr, cv2.COLOR_BGR2RGB)
+        augmented_image_pil = Image.fromarray(augmented_image_rgb)
+
+        # Update the sample with the augmented image
+        sample["image"] = augmented_image_pil
+
+        # Double-check PIL image size matches original
+        assert augmented_image_pil.size == image.size, f"PIL image size changed during augmentation: {image.size} -> {augmented_image_pil.size}"
+
+        return sample
+
+
+@dataclass(frozen=True, slots=True)
 class InstructUserMessages(PipelineStep):
     """Creates instruction-following messages format for training."""
 
+    prompt_first: bool = False
+
     def __call__(self, sample: Sample) -> Sample:
         # Prepare messages
-        messages = {
-            "role": "user",
-            "content": [
-                {"type": "image", "image": sample["image"]},
-                {"type": "text", "text": sample["instruction_prompt"]},
-            ],
-        }
+        if self.prompt_first:
+            messages = {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": sample["instruction_prompt"]},
+                    {"type": "image", "image": sample["image"]},
+                ],
+            }
+        else:
+            messages = {
+                "role": "user",
+                "content": [
+                    {"type": "image", "image": sample["image"]},
+                    {"type": "text", "text": sample["instruction_prompt"]},
+                ],
+            }
 
         sample["user_messages"] = messages
 
@@ -472,7 +671,13 @@ class Tokenizer(PipelineStep):
         # user_messages is a single dict, so wrap it in a list
         text = self.processor.apply_chat_template([user_messages], tokenize=False, add_generation_prompt=True)
 
-        main_image = user_messages["content"][0]["image"]
+        main_image = None
+        for usg_msg in user_messages["content"]:
+            if "image" in usg_msg:
+                main_image = usg_msg["image"]
+                break
+
+        assert main_image is not None
 
         # Process inputs using processor
         inputs = self.processor(
@@ -561,20 +766,19 @@ class RandomTokenFlipper(PipelineStep):
 class MarkdownPDFDocumentDataset(BaseMarkdownPDFDataset):
     """Dataset that includes front matter parsing and PDF rendering by default."""
 
-    def __init__(self, root_dir: str | PathLike, target_longest_image_dim: int, image_transform=None, front_matter_class=None):
+    def __init__(self, root_dir: str | PathLike, target_longest_image_dim: int, front_matter_class=None):
         """
         Initialize the dataset with default pipeline steps.
 
         Args:
             root_dir: Path to the root folder containing processed markdown and PDF files
             target_longest_image_dim: Target dimension for the longest side of the image
-            image_transform: Optional transform to apply to the PDF images
             front_matter_class: Optional dataclass type to validate front matter against
         """
         # Create default pipeline steps
         pipeline_steps = [
             FrontMatterParser(front_matter_class),
-            PDFRenderer(target_longest_image_dim, image_transform),
+            PDFRenderer(target_longest_image_dim),
             StaticLengthDocumentAnchoring(target_anchor_text_len=6000),
             FinetuningPrompt(),
             FrontMatterOutputFormat(),
@@ -617,6 +821,16 @@ if __name__ == "__main__":
         type=int,
         default=0,
         help="Index of sample to display in detail",
+    )
+    parser.add_argument(
+        "--analyze-tokens",
+        action="store_true",
+        help="Analyze token length distribution across entire dataset",
+    )
+    parser.add_argument(
+        "--save-image",
+        type=str,
+        help="Save the processed image to the specified file path (e.g., output.png)",
     )
 
     args = parser.parse_args()
@@ -692,6 +906,12 @@ if __name__ == "__main__":
             print(f"PDF file: {sample['pdf_path'].name}")
         if "image" in sample and hasattr(sample["image"], "size"):
             print(f"Image size: {sample['image'].size}")
+
+            # Save image if requested
+            if args.save_image:
+                sample["image"].save(args.save_image)
+                print(f"Saved image to: {args.save_image}")
+
         if "page_data" in sample:
             print(f"\nPage data: {sample['page_data']}")
         if "messages" in sample:
@@ -780,7 +1000,7 @@ if __name__ == "__main__":
             print(f"  Total sequence length: {total_count}")
 
         # Analyze token length distribution across entire dataset
-        if "input_ids" in sample:
+        if args.analyze_tokens and "input_ids" in sample:
             print(f"\n\n=== Analyzing token length distribution across entire dataset ===")
             print(f"Processing {len(dataset)} samples...")
 

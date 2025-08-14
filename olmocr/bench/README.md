@@ -81,7 +81,7 @@ to run it against your own OCR tools. Your tool just needs to support Markdown o
       <td align="center">93.6</td>
       <td align="center">71.3</td>
       <td align="center">77.1</td>
-      <td align="center"><strong>99.4</strong></td>
+      <td align="center">99.4</td>
       <td align="center">72.0 ± 1.1</td>
     </tr>
     <tr>
@@ -195,7 +195,7 @@ to run it against your own OCR tools. Your tool just needs to support Markdown o
     <tr>
       <td align="left">olmOCR v0.2.0</td>
       <td align="center"><strong>78.8</strong></td>
-      <td align="center"><strong>77.5</strong></td>
+      <td align="center">77.5</td>
       <td align="center">71.9</td>
       <td align="center"><strong>45.4</strong></td>
       <td align="center">94.2</td>
@@ -204,6 +204,18 @@ to run it against your own OCR tools. Your tool just needs to support Markdown o
       <td align="center"><strong>99.8</strong></td>
       <td align="center"><strong>78.5 ± 1.1</strong></td>
     </tr>
+    <tr>
+      <td align="left">olmOCR v0.3.0</td>
+      <td align="center">78.6</td>
+      <td align="center"><strong>79.9</strong></td>
+      <td align="center">72.9</td>
+      <td align="center">43.9</td>
+      <td align="center">95.1</td>
+      <td align="center">77.3</td>
+      <td align="center">81.2</td>
+      <td align="center">98.9</td>
+      <td align="center">78.5 ± 1.1</td>
+    </tr>    
   </tbody>
 </table>
 

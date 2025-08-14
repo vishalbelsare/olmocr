@@ -5,6 +5,7 @@ set -e
 # Parse command line arguments
 CONFIG="olmocr/train/configs/qwen25_vl_b100_x1_default.yaml"
 SKIP_DOCKER_BUILD=false
+PREEMPTIBLE=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -16,9 +17,13 @@ while [[ $# -gt 0 ]]; do
             SKIP_DOCKER_BUILD=true
             shift
             ;;
+        --preemptible)
+            PREEMPTIBLE=true
+            shift
+            ;;
         *)
             echo "Unknown option: $1"
-            echo "Usage: $0 [--config CONFIG_PATH] [--skip-docker-build]"
+            echo "Usage: $0 [--config CONFIG_PATH] [--skip-docker-build] [--preemptible]"
             exit 1
             ;;
     esac
@@ -74,21 +79,24 @@ cat << 'EOF' > /tmp/run_training_experiment.py
 import sys
 from beaker import Beaker, ExperimentSpec, TaskSpec, TaskContext, ResultSpec, TaskResources, ImageSource, Priority, Constraints, EnvVar, DataMount
 
-# Get image tag, beaker user, git branch, git hash, and config from command line
+# Get image tag, beaker user, git branch, git hash, config, and preemptible from command line
 image_tag = sys.argv[1]
 beaker_user = sys.argv[2]
 git_branch = sys.argv[3]
 git_hash = sys.argv[4]
 config = sys.argv[5]
+preemptible = sys.argv[6] == "true"
 
 # Initialize Beaker client
 b = Beaker.from_env(default_workspace="ai2/olmocr")
 
 # Build the training command
 commands = [
-    "pip install -r gantry-train-requirements.txt",
+    "pip install .[train]",
     "pip install transformers==4.52.4",
     "pip install flash-attn==2.8.0.post2 --no-build-isolation",
+    "pip install s5cmd",
+    "s5cmd sync s3://ai2-oe-data/jakep/olmocr/olmOCR-mix-0225/preprocessed_v0_2_3/* /data/olmOCR-mix-0225/",
     f"python -m olmocr.train.train --config {config}"
 ]
 
@@ -102,7 +110,7 @@ task_spec = TaskSpec(
     ],
     context=TaskContext(
         priority=Priority.normal,
-        preemptible=False,
+        preemptible=preemptible,
     ),
     resources=TaskResources(
         gpu_count=1,
@@ -114,8 +122,8 @@ task_spec = TaskSpec(
         EnvVar(name="LOG_FILTER_TYPE", value="local_rank0_only"),
         EnvVar(name="OMP_NUM_THREADS", value="8"),
         EnvVar(name="BEAKER_USER_ID", value=beaker_user),
-        EnvVar(name="AWS_ACCESS_KEY_ID", secret="S2_AWS_ACCESS_KEY_ID"),
-        EnvVar(name="AWS_SECRET_ACCESS_KEY", secret="S2_AWS_SECRET_ACCESS_KEY"),
+        EnvVar(name="AWS_ACCESS_KEY_ID", secret="ALLENNLP_AWS_ACCESS_KEY_ID"),
+        EnvVar(name="AWS_SECRET_ACCESS_KEY", secret="ALLENNLP_AWS_SECRET_ACCESS_KEY"),
         EnvVar(name="WANDB_API_KEY", secret="JAKE_WANDB_API_KEY")
     ],
     datasets=[
@@ -127,7 +135,7 @@ task_spec = TaskSpec(
 # Create experiment spec
 experiment_spec = ExperimentSpec(
     description=f"OlmOCR Training Run - Branch: {git_branch}, Commit: {git_hash}",
-    budget="ai2/oe-data",
+    budget="ai2/oe-base",
     tasks=[task_spec],
 )
 
@@ -139,7 +147,7 @@ EOF
 
 # Run the Python script to create the experiment
 echo "Creating Beaker experiment..."
-$PYTHON /tmp/run_training_experiment.py $IMAGE_TAG $BEAKER_USER $GIT_BRANCH $GIT_HASH "$CONFIG"
+$PYTHON /tmp/run_training_experiment.py $IMAGE_TAG $BEAKER_USER $GIT_BRANCH $GIT_HASH "$CONFIG" $PREEMPTIBLE
 
 # Clean up temporary file
 rm /tmp/run_training_experiment.py

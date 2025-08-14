@@ -35,6 +35,7 @@ Features:
  - (Based on a 7B parameter VLM, so it requires a GPU)
 
 ### News
+ - August 13, 2024 - v0.3.0 - [New model release](https://huggingface.co/allenai/olmOCR-7B-0825-FP8), fixes auto-rotation detection, and hallucinations on blank documents.
  - July 24, 2025 - v0.2.1 - [New model release](https://huggingface.co/allenai/olmOCR-7B-0725-FP8), scores 3 points higher on [olmOCR-Bench](https://github.com/allenai/olmocr/tree/main/olmocr/bench), also runs significantly faster because it's default FP8, and needs much fewer retries per document.
  - July 23, 2025 - v0.2.0 - New cleaned up [trainer code](https://github.com/allenai/olmocr/tree/main/olmocr/train), makes it much simpler to train olmOCR models yourself.
  - June 17, 2025 - v0.1.75 - Switch from sglang to vllm based inference pipeline, updated docker image to CUDA 12.8.
@@ -97,7 +98,7 @@ We also ship a comprehensive benchmark suite covering over 7,000 test cases acro
       <td align="center">93.6</td>
       <td align="center">71.3</td>
       <td align="center">77.1</td>
-      <td align="center"><strong>99.4</strong></td>
+      <td align="center">99.4</td>
       <td align="center">72.0 ± 1.1</td>
     </tr>
     <tr>
@@ -115,7 +116,7 @@ We also ship a comprehensive benchmark suite covering over 7,000 test cases acro
     <tr>
       <td align="left">olmOCR v0.2.0</td>
       <td align="center"><strong>78.8</strong></td>
-      <td align="center"><strong>77.5</strong></td>
+      <td align="center">77.5</td>
       <td align="center">71.9</td>
       <td align="center"><strong>45.4</strong></td>
       <td align="center">94.2</td>
@@ -124,6 +125,18 @@ We also ship a comprehensive benchmark suite covering over 7,000 test cases acro
       <td align="center"><strong>99.8</strong></td>
       <td align="center"><strong>78.5 ± 1.1</strong></td>
     </tr>
+    <tr>
+      <td align="left">olmOCR v0.3.0</td>
+      <td align="center">78.6</td>
+      <td align="center"><strong>79.9</strong></td>
+      <td align="center">72.9</td>
+      <td align="center">43.9</td>
+      <td align="center">95.1</td>
+      <td align="center">77.3</td>
+      <td align="center">81.2</td>
+      <td align="center">98.9</td>
+      <td align="center">78.5 ± 1.1</td>
+    </tr>       
   </tbody>
 </table>
 
@@ -131,7 +144,7 @@ We also ship a comprehensive benchmark suite covering over 7,000 test cases acro
 ### Installation
 
 Requirements:
- - Recent NVIDIA GPU (tested on RTX 4090, L40S, A100, H100) with at least 20 GB of GPU RAM
+ - Recent NVIDIA GPU (tested on RTX 4090, L40S, A100, H100) with at least 15 GB of GPU RAM
  - 30GB of free disk space
 
 You will need to install poppler-utils and additional fonts for rendering PDF images.

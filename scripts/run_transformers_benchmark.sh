@@ -92,7 +92,7 @@ commands.extend([
     "cd olmOCR-bench && git lfs pull && cd ..",
     "pip install accelerate",
     "pip install flash-attn==2.8.0.post2 --no-build-isolation",
-    "python -m olmocr.bench.convert transformers:target_longest_image_dim=1288:prompt_template=yaml:response_template=yaml --dir ./olmOCR-bench/bench_data",
+    "PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True python -m olmocr.bench.convert transformers:target_longest_image_dim=1288:prompt_template=yaml:response_template=yaml --dir ./olmOCR-bench/bench_data",
     "python -m olmocr.bench.benchmark --dir ./olmOCR-bench/bench_data"
 ])
 

@@ -8,7 +8,6 @@ from PIL import Image
 from transformers import (
     AutoProcessor,
     Qwen2_5_VLForConditionalGeneration,
-    Qwen2VLForConditionalGeneration,
 )
 
 from olmocr.data.renderpdf import render_pdf_to_base64png

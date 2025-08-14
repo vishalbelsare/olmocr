@@ -3,7 +3,7 @@
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 
 import yaml
 from omegaconf import OmegaConf
@@ -81,6 +81,7 @@ class InstructUserMessagesConfig(PipelineStepConfig):
     """Configuration for InstructUserMessages step."""
 
     name: str = "InstructUserMessages"
+    prompt_first: bool = False
 
 
 @dataclass
@@ -97,6 +98,38 @@ class TokenizerStepConfig(PipelineStepConfig):
     name: str = "Tokenizer"
     masking_index: int = -100
     end_of_message_token: str = "<|im_end|>"
+
+
+@dataclass
+class RandomTokenFlipperConfig(PipelineStepConfig):
+    """Configuration for RandomTokenFlipper step."""
+
+    name: str = "RandomTokenFlipper"
+    token_flip_rate: float = 1e-4
+    masking_index: int = -100
+
+
+@dataclass
+class FilterOutRotatedDocumentsConfig(PipelineStepConfig):
+    """Configuration for FilterOutRotatedDocuments step."""
+
+    name: str = "FilterOutRotatedDocuments"
+
+
+@dataclass
+class RotationAugmentationConfig(PipelineStepConfig):
+    """Configuration for RotationAugmentation step."""
+
+    name: str = "RotationAugmentation"
+    probability: float = 0.5
+
+
+@dataclass
+class AugraphyBasicAugmentationsConfig(PipelineStepConfig):
+    """Configuration for AugraphyBasicAugmentations step."""
+
+    name: str = "AugraphyBasicAugmentations"
+    probability: float = 0.5  # Overall probability of applying any augmentation
 
 
 @dataclass
@@ -128,7 +161,7 @@ class ModelConfig:
     # Model initialization
     load_in_8bit: bool = False
     load_in_4bit: bool = False
-    device_map: Optional[Union[str, Dict[str, Any]]] = "auto"
+    device_map: Any = "auto"  # Can be string or dict
     torch_dtype: str = "auto"  # "auto", "float16", "bfloat16", "float32"
 
     # Flash attention
@@ -165,12 +198,18 @@ class TrainingConfig:
     lr_scheduler_kwargs: Dict[str, Any] = field(default_factory=dict)
 
     # Optimization
-    optim: str = "adamw_torch"
+    optim: str = "adamw_torch"  # "adamw_torch", "muon"
     adam_beta1: float = 0.9
     adam_beta2: float = 0.999
     adam_epsilon: float = 1e-8
     weight_decay: float = 0.01
     max_grad_norm: float = 1.0
+
+    # Muon optimizer specific settings
+    muon_momentum: float = 0.95
+    muon_lr_multiplier_head: float = 11.0  # Learning rate multiplier for head parameters
+    muon_lr_multiplier_embed: float = 30.0  # Learning rate multiplier for embedding parameters
+    muon_lr_multiplier_scalar: float = 2.0  # Learning rate multiplier for scalar parameters
 
     # Gradient checkpointing
     gradient_checkpointing: bool = False
@@ -205,6 +244,13 @@ class TrainingConfig:
     collator_max_token_len: Optional[int] = None
     remove_unused_columns: bool = False  # Important for custom datasets
 
+    # Torch compile settings
+    torch_compile: bool = False
+    torch_compile_backend: str = "inductor"  # "inductor", "aot_eager", "cudagraphs", etc.
+    torch_compile_mode: str = "default"  # "default", "reduce-overhead", "max-autotune"
+    torch_compile_fullgraph: bool = False
+    torch_compile_dynamic: bool = False
+
     # Early stopping
     use_early_stopping: bool = False
     early_stopping_patience: int = 3
@@ -235,7 +281,7 @@ class Config:
     local_rank: int = -1
 
     @classmethod
-    def from_yaml(cls, yaml_path: Union[str, Path]) -> "Config":
+    def from_yaml(cls, yaml_path: str | Path) -> "Config":
         """Load configuration from YAML file."""
         yaml_path = Path(yaml_path)
         if not yaml_path.exists():
@@ -264,7 +310,7 @@ class Config:
 
         return cls(model=model_cfg, dataset=dataset_cfg, training=training_cfg, **main_cfg_dict)
 
-    def to_yaml(self, yaml_path: Union[str, Path]) -> None:
+    def to_yaml(self, yaml_path: str | Path) -> None:
         """Save configuration to YAML file."""
         yaml_path = Path(yaml_path)
         yaml_path.parent.mkdir(parents=True, exist_ok=True)
@@ -298,6 +344,11 @@ class Config:
             self.training.logging_dir = os.path.join(self.training.output_dir, "logs")
         Path(self.training.logging_dir).mkdir(parents=True, exist_ok=True)
 
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert configuration to dictionary."""
+        cfg = OmegaConf.structured(self)
+        return OmegaConf.to_container(cfg, resolve=True)
+
     def get_pipeline_steps(self, pipeline_config: List[Dict[str, Any]], processor=None):
         """Create actual pipeline step instances from pipeline configuration.
 
@@ -310,6 +361,8 @@ class Config:
         """
         from olmocr.prompts.prompts import PageResponse
         from olmocr.train.dataloader import (
+            AugraphyBasicAugmentations,
+            FilterOutRotatedDocuments,
             FinetuningPrompt,
             FrontMatterOutputFormat,
             FrontMatterParser,
@@ -320,6 +373,7 @@ class Config:
             NewYamlFinetuningPromptWithNoAnchoring,
             PDFRenderer,
             RandomTokenFlipper,
+            RotationAugmentation,
             StaticLengthDocumentAnchoring,
             Tokenizer,
         )
@@ -340,9 +394,7 @@ class Config:
                 steps.append(FrontMatterParser(front_matter_class=front_matter_class))
 
             elif step_name == "PDFRenderer":
-                steps.append(
-                    PDFRenderer(target_longest_image_dim=step_config.get("target_longest_image_dim", 1024), image_transform=None)  # Can be extended later
-                )
+                steps.append(PDFRenderer(target_longest_image_dim=step_config.get("target_longest_image_dim", 1024)))
 
             elif step_name == "StaticLengthDocumentAnchoring":
                 steps.append(StaticLengthDocumentAnchoring(target_anchor_text_len=step_config.get("target_anchor_text_len", 6000)))
@@ -363,7 +415,7 @@ class Config:
                 steps.append(FrontMatterOutputFormat())
 
             elif step_name == "InstructUserMessages":
-                steps.append(InstructUserMessages())
+                steps.append(InstructUserMessages(prompt_first=step_config.get("prompt_first", False)))
 
             elif step_name == "LatexBracketNormalizer":
                 steps.append(LatexBracketNormalizer())
@@ -401,6 +453,16 @@ class Config:
                         masking_index=step_config.get("masking_index", -100),
                     )
                 )
+
+            elif step_name == "FilterOutRotatedDocuments":
+                steps.append(FilterOutRotatedDocuments())
+
+            elif step_name == "RotationAugmentation":
+                steps.append(RotationAugmentation(probability=step_config.get("probability", 0.5)))
+
+            elif step_name == "AugraphyBasicAugmentations":
+                steps.append(AugraphyBasicAugmentations(probability=step_config.get("probability", 0.5)))
+
             else:
                 raise ValueError(f"Unknown pipeline step: {step_name}")
 

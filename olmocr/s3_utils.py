@@ -85,11 +85,17 @@ def expand_s3_glob(s3_client, s3_glob: str) -> dict[str, str]:
 
 
 def get_s3_bytes(s3_client, s3_path: str, start_index: Optional[int] = None, end_index: Optional[int] = None) -> bytes:
+    is_cloud_path = s3_path.startswith("s3://") or s3_path.startswith("gs://") or s3_path.startswith("weka://")
+
     # Fall back for local files
-    if os.path.exists(s3_path):
-        assert start_index is None and end_index is None, "Range query not supported yet"
-        with open(s3_path, "rb") as f:
-            return f.read()
+    if not is_cloud_path:
+        if os.path.exists(s3_path):
+            assert start_index is None and end_index is None, "Range query not supported yet"
+            with open(s3_path, "rb") as f:
+                return f.read()
+        else:
+            logger.error(f"Could not find local file {s3_path}")
+            raise Exception(f"Could not find local file {s3_path}")
 
     bucket, key = parse_s3_path(s3_path)
 

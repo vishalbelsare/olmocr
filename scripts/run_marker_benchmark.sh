@@ -128,7 +128,7 @@ if has_aws_creds:
 # Create first experiment spec
 experiment_spec = ExperimentSpec(
     description=f"Marker {marker_version} Benchmark Run - Branch: {git_branch}, Commit: {git_hash}",
-    budget="ai2/oe-data",
+    budget="ai2/oe-base",
     tasks=[TaskSpec(**task_spec_args)],
 )
 
@@ -182,7 +182,7 @@ if has_aws_creds:
 # Create performance experiment spec
 perf_experiment_spec = ExperimentSpec(
     description=f"Marker {marker_version} Performance Test - Branch: {git_branch}, Commit: {git_hash}",
-    budget="ai2/oe-data",
+    budget="ai2/oe-base",
     tasks=[TaskSpec(**perf_task_spec_args)],
 )
 

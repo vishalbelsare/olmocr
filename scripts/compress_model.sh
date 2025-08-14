@@ -159,7 +159,7 @@ if has_aws_creds:
 # Create experiment spec
 experiment_spec = ExperimentSpec(
     description=f"OlmOCR Model Compression - Branch: {git_branch}, Commit: {git_hash}, Recipe: {recipe}",
-    budget="ai2/oe-data",
+    budget="ai2/oe-base",
     tasks=[TaskSpec(**task_spec_args)],
 )
 
