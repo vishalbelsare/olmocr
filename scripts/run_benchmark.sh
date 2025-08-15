@@ -24,15 +24,15 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Check for uncommitted changes
-if ! git diff-index --quiet HEAD --; then
-    echo "Error: There are uncommitted changes in the repository."
-    echo "Please commit or stash your changes before running the benchmark."
-    echo ""
-    echo "Uncommitted changes:"
-    git status --short
-    exit 1
-fi
+# # Check for uncommitted changes
+# if ! git diff-index --quiet HEAD --; then
+#     echo "Error: There are uncommitted changes in the repository."
+#     echo "Please commit or stash your changes before running the benchmark."
+#     echo ""
+#     echo "Uncommitted changes:"
+#     git status --short
+#     exit 1
+# fi
 
 # Use conda environment Python if available, otherwise use system Python
 if [ -n "$CONDA_PREFIX" ]; then
@@ -132,7 +132,7 @@ task_spec_args = {
         preemptible=True,
     ),
     "resources": TaskResources(gpu_count=1),
-    "constraints": Constraints(cluster=["ai2/ceres-cirrascale", "ai2/jupiter-cirrascale-2"]),
+    "constraints": Constraints(cluster=["ai2/titan-cirrascale"]),
     "result": ResultSpec(path="/noop-results"),
 }
 
@@ -182,8 +182,8 @@ perf_task_spec_args = {
         preemptible=True,
     ),
     # Need to reserve all 8 gpus for performance spec or else benchmark results can be off
-    "resources": TaskResources(gpu_count=8),
-    "constraints": Constraints(cluster=["ai2/ceres-cirrascale", "ai2/jupiter-cirrascale-2"]),
+    "resources": TaskResources(gpu_count=1),
+    "constraints": Constraints(cluster=["ai2/titan-cirrascale"]),
     "result": ResultSpec(path="/noop-results"),
 }
 

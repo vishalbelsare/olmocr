@@ -1,5 +1,5 @@
 ARG CUDA_VERSION=12.8.1
-FROM --platform=linux/amd64 nvidia/cuda:${CUDA_VERSION}-devel-ubuntu22.04
+FROM nvidia/cuda:${CUDA_VERSION}-devel-ubuntu22.04
 
 # Needs to be repeated below the FROM, or else it's not picked up
 ARG PYTHON_VERSION=3.12
@@ -48,40 +48,62 @@ RUN apt-get update -y && apt-get install -y --no-install-recommends \
 
 ENV PYTHONUNBUFFERED=1
 
+# Set CUDA environment
+ENV CUDA_HOME=/usr/local/cuda
+ENV PATH=${CUDA_HOME}/bin:${PATH}
+ENV LD_LIBRARY_PATH=${CUDA_HOME}/lib64:${LD_LIBRARY_PATH}
+
 # keep the build context clean
 WORKDIR /build          
 COPY . /build
 
+# Install core dependencies needed for FlashInfer
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install --system torch filelock packaging requests numpy ninja
+
 # Install FlashInfer from source
 ARG FLASHINFER_GIT_REPO="https://github.com/flashinfer-ai/flashinfer.git"
-# Keep this in sync with https://github.com/vllm-project/vllm/blob/main/requirements/cuda.txt
-# We use `--force-reinstall --no-deps` to avoid issues with the existing FlashInfer wheel.
-ARG FLASHINFER_GIT_REF="v0.2.11"
-RUN --mount=type=cache,target=/root/.cache/uv bash - <<'BASH'
-  . /etc/environment
+ARG FLASHINFER_GIT_REF="v0.2.8"
+RUN --mount=type=cache,target=/root/.cache/uv bash -xe <<'BASH'
+    set -euo pipefail
+    . /etc/environment
+    
+    # Clone FlashInfer repository
+    echo "📦 Cloning FlashInfer ${FLASHINFER_GIT_REF}..."
     git clone --depth 1 --recursive --shallow-submodules \
         --branch ${FLASHINFER_GIT_REF} \
-        ${FLASHINFER_GIT_REPO} flashinfer
-    # Exclude CUDA arches for older versions (11.x and 12.0-12.7)
-    # TODO: Update this to allow setting TORCH_CUDA_ARCH_LIST as a build arg.
+        ${FLASHINFER_GIT_REPO} flashinfer || exit 1
+    
+    # Determine CUDA architectures based on version
     if [[ "${CUDA_VERSION}" == 11.* ]]; then
-        FI_TORCH_CUDA_ARCH_LIST="7.5 8.0 8.9"
+        export TORCH_CUDA_ARCH_LIST="7.5 8.0 8.9"
     elif [[ "${CUDA_VERSION}" == 12.[0-7]* ]]; then
-        FI_TORCH_CUDA_ARCH_LIST="7.5 8.0 8.9 9.0a"
+        export TORCH_CUDA_ARCH_LIST="7.5 8.0 8.9 9.0a"
     else
-        # CUDA 12.8+ supports 10.0a and 12.0
-        FI_TORCH_CUDA_ARCH_LIST="7.5 8.0 8.9 9.0a 10.0a 12.0"
+        export TORCH_CUDA_ARCH_LIST="7.5 8.0 8.9 9.0a 10.0a 12.0"
     fi
-    echo "🏗️  Building FlashInfer for arches: ${FI_TORCH_CUDA_ARCH_LIST}"
-    # Needed to build AOT kernels
-    pushd flashinfer
-        TORCH_CUDA_ARCH_LIST="${FI_TORCH_CUDA_ARCH_LIST}" \
-            python3 -m flashinfer.aot
-        TORCH_CUDA_ARCH_LIST="${FI_TORCH_CUDA_ARCH_LIST}" \
-            uv pip install --system --no-build-isolation --force-reinstall --no-deps .
-    popd
+    echo "🏗️  Building for CUDA arches: ${TORCH_CUDA_ARCH_LIST}"
+    
+    # Build and install FlashInfer
+    cd flashinfer
+    
+    # Set CUDA environment
+    export CUDA_HOME=/usr/local/cuda
+    export PATH=$CUDA_HOME/bin:$PATH
+    export LD_LIBRARY_PATH=$CUDA_HOME/lib64:$LD_LIBRARY_PATH
+    
+    echo "⚙️  Skipping AOT kernels (will be built on first use)..."
+    # Note: AOT kernels require nvshmem which isn't available
+    # They will be JIT compiled on first use instead
+    
+    echo "📦 Installing FlashInfer..."
+    uv pip install --system --no-build-isolation --force-reinstall --no-deps . || exit 1
+    
+    cd ..
     rm -rf flashinfer
+    echo "✅ FlashInfer installed successfully"
 BASH
+
 
 # Needed to resolve setuptools dependencies
 ENV UV_INDEX_STRATEGY="unsafe-best-match"
