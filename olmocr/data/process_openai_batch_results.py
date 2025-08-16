@@ -82,7 +82,7 @@ def format_frontmatter_markdown(response_data: Dict[str, Any]) -> str:
     if natural_text:
         markdown += natural_text
     
-    return markdown
+    return markdown.strip()
 
 
 def process_single_result(
