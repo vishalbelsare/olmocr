@@ -9,6 +9,7 @@ that mirrors the original structure with side-by-side PDF and MD files.
 import argparse
 import json
 import shutil
+import re
 from pathlib import Path
 from typing import Dict, Any, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -111,7 +112,16 @@ def process_single_result(
         
         if not original_pdf_path.exists():
             print(f"Warning: Original PDF not found: {original_pdf_path}")
-            return False
+
+            original_pdf_path = str(original_pdf_path)
+            pattern = r'(.+?)(-\d+)\.pdf$'
+            replacement = r'\1.pdf\2.pdf'
+
+            original_pdf_path = Path(re.sub(pattern, replacement, original_pdf_path))
+
+            if not original_pdf_path.exists():
+                print(f"Error: Original PDF not found: {original_pdf_path}")
+                return False
         
         # Create output paths
         output_pdf_path = output_dir / pdf_relative_path
