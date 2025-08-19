@@ -521,6 +521,148 @@ class FilterOutRotatedDocuments(PipelineStep):
 
 
 @dataclass(frozen=True, slots=True)
+class DatasetTextRuleFilter(PipelineStep):
+    """Pipeline step that filters samples based on text content rules.
+    
+    Filters out samples that:
+    - Contain markdown tables
+    - Contain malformed HTML tables
+    """
+
+    def _contains_markdown_table(self, text: str) -> bool:
+        """Check if text contains markdown tables."""
+        # Look for pipe-separated table patterns
+        # Markdown tables have lines like: | col1 | col2 | col3 |
+        # And separator lines like: |------|------|------|
+        lines = text.split('\n')
+        for i, line in enumerate(lines):
+            line = line.strip()
+            # Check if line looks like a table row
+            if line.startswith('|') and line.endswith('|') and line.count('|') >= 3:
+                # Check if next line is a separator (for header rows)
+                if i + 1 < len(lines):
+                    next_line = lines[i + 1].strip()
+                    if next_line.startswith('|') and '-' in next_line:
+                        return True
+                # Check if previous line is a separator (for data rows)
+                if i > 0:
+                    prev_line = lines[i - 1].strip()
+                    if prev_line.startswith('|') and '-' in prev_line:
+                        return True
+        return False
+
+    def _extract_and_validate_html_tables(self, text: str) -> bool:
+        """Extract HTML tables and validate they parse correctly.
+        
+        Returns:
+            True if all HTML tables are valid or no tables exist
+            False if any HTML table is malformed
+        """
+        # Find all HTML table blocks
+        import re
+        
+        # Check if there are any <table> tags at all
+        if '<table' not in text.lower():
+            return True  # No tables, that's fine
+            
+        # Pattern to find HTML tables (case-insensitive)
+        # Note: This pattern might not catch malformed tables where </table> is missing
+        table_pattern = re.compile(r'<table\b[^>]*>.*?</table>', re.IGNORECASE | re.DOTALL)
+        tables = table_pattern.findall(text)
+        
+        # Also check for unclosed table tags
+        table_open_count = len(re.findall(r'<table\b[^>]*>', text, re.IGNORECASE))
+        table_close_count = len(re.findall(r'</table>', text, re.IGNORECASE))
+        
+        if table_open_count != table_close_count:
+            return False  # Mismatched table tags
+        
+        if not tables and table_open_count > 0:
+            # Found table tags but couldn't extract complete tables
+            return False
+        
+        # Try to parse each table
+        from html.parser import HTMLParser
+        
+        class TableValidator(HTMLParser):
+            def __init__(self):
+                super().__init__()
+                self.tag_stack = []
+                self.is_valid = True
+                self.error_msg = None
+                
+            def handle_starttag(self, tag, attrs):
+                self.tag_stack.append(tag.lower())
+                
+            def handle_endtag(self, tag):
+                tag = tag.lower()
+                if not self.tag_stack:
+                    self.is_valid = False
+                    self.error_msg = f"Unexpected closing tag: {tag}"
+                    return
+                    
+                # Check if the closing tag matches the most recent opening tag
+                if self.tag_stack[-1] == tag:
+                    self.tag_stack.pop()
+                else:
+                    # For HTML, some tags can be implicitly closed (like td, tr)
+                    # But we should still detect truly malformed tables
+                    if tag in self.tag_stack:
+                        # Pop until we find the matching tag
+                        while self.tag_stack and self.tag_stack[-1] != tag:
+                            self.tag_stack.pop()
+                        if self.tag_stack:
+                            self.tag_stack.pop()
+                    else:
+                        self.is_valid = False
+                        self.error_msg = f"Mismatched tag: expected {self.tag_stack[-1]}, got {tag}"
+                        
+            def error(self, message):
+                self.is_valid = False
+                self.error_msg = message
+        
+        # Validate each table
+        for table_html in tables:
+            parser = TableValidator()
+            try:
+                parser.feed(table_html)
+                # Check if all tags were closed
+                if parser.tag_stack:
+                    return False  # Unclosed tags
+                if not parser.is_valid:
+                    return False  # Parser found an error
+            except Exception:
+                # Any parsing exception means the table is malformed
+                return False
+                
+        return True
+
+    def __call__(self, sample: Sample) -> Optional[Sample]:
+        """Filter samples based on text content rules."""
+        # Get the natural text from page_data if it exists
+        text = None
+        
+        if "page_data" in sample:
+            page_data = sample["page_data"]
+            if hasattr(page_data, "natural_text") and page_data.natural_text:
+                text = page_data.natural_text
+        
+        # If no text to check, pass the sample through
+        if text is None:
+            return sample
+        
+        # Check for markdown tables
+        if self._contains_markdown_table(text):
+            return None  # Filter out samples with markdown tables
+        
+        # Check for HTML tables and validate them
+        if not self._extract_and_validate_html_tables(text):
+            return None  # Filter out samples with malformed HTML tables
+        
+        return sample
+
+
+@dataclass(frozen=True, slots=True)
 class AugraphyBasicAugmentations(PipelineStep):
     """Pipeline step that applies a decent selection of augraphy augmentations to the data"""
 
@@ -901,9 +1043,9 @@ if __name__ == "__main__":
 
         # If it's raw data (no tokenization)
         if "markdown_path" in sample:
-            print(f"\nMarkdown file: {sample['markdown_path'].name}")
+            print(f"\nMarkdown file: {sample['markdown_path']}")
         if "pdf_path" in sample:
-            print(f"PDF file: {sample['pdf_path'].name}")
+            print(f"PDF file: {sample['pdf_path']}")
         if "image" in sample and hasattr(sample["image"], "size"):
             print(f"Image size: {sample['image'].size}")
 

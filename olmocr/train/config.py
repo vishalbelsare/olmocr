@@ -117,6 +117,13 @@ class FilterOutRotatedDocumentsConfig(PipelineStepConfig):
 
 
 @dataclass
+class DatasetTextRuleFilterConfig(PipelineStepConfig):
+    """Configuration for DatasetTextRuleFilter step."""
+
+    name: str = "DatasetTextRuleFilter"
+
+
+@dataclass
 class RotationAugmentationConfig(PipelineStepConfig):
     """Configuration for RotationAugmentation step."""
 
@@ -362,6 +369,7 @@ class Config:
         from olmocr.prompts.prompts import PageResponse
         from olmocr.train.dataloader import (
             AugraphyBasicAugmentations,
+            DatasetTextRuleFilter,
             FilterOutRotatedDocuments,
             FinetuningPrompt,
             FrontMatterOutputFormat,
@@ -456,6 +464,9 @@ class Config:
 
             elif step_name == "FilterOutRotatedDocuments":
                 steps.append(FilterOutRotatedDocuments())
+
+            elif step_name == "DatasetTextRuleFilter":
+                steps.append(DatasetTextRuleFilter())
 
             elif step_name == "RotationAugmentation":
                 steps.append(RotationAugmentation(probability=step_config.get("probability", 0.5)))
