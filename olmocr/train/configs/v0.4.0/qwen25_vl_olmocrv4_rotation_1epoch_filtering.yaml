@@ -2,7 +2,7 @@
 
 # Project metadata
 project_name: olmocr-qwen-vl-training
-run_name: qwen2.5-vl-7b-olmocrv4_1epoch_promptv4
+run_name: qwen2.5-vl-7b-olmocrv4_1epoch_promptv4_filtering
 
 # Model configuration
 model:
@@ -33,6 +33,8 @@ dataset:
         - name: FrontMatterParser
           front_matter_class: PageResponse
         - name: FilterOutRotatedDocuments
+        - name: ReformatLatexBoldItalic
+        - name: DatasetTextRuleFilter
         - name: PDFRenderer
           target_longest_image_dim: 1288
         - name: RotationAugmentation
