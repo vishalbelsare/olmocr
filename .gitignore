@@ -22,6 +22,8 @@ table_data*/
 /synth*/
 dolma_samples/*
 old_train/
+filtered_items/
+filtered_items_prefilter/
 augraphy_cache/
 /*.html
 scoreelo.csv

@@ -32,6 +32,7 @@ from pypdf import PdfReader
 from torch.utils.data import Dataset
 from tqdm import tqdm
 
+from olmocr.bench.katex.render import render_equation
 from olmocr.data.renderpdf import render_pdf_to_base64png
 from olmocr.prompts.anchor import get_anchor_text
 from olmocr.prompts.prompts import PageResponse, build_finetuning_prompt
@@ -646,7 +647,6 @@ class DatasetTextRuleFilter(PipelineStep):
             True if text contains LaTeX tables (\\begin{table}, \\begin{tabular}, etc.)
             False otherwise
         """
-        import re
 
         # Check for various LaTeX table environments
         latex_table_patterns = [
@@ -668,7 +668,6 @@ class DatasetTextRuleFilter(PipelineStep):
             True if text contains LaTeX formatting commands outside math equations
             False otherwise
         """
-        import re
 
         # List of common LaTeX formatting commands to check for
         latex_commands = [
@@ -686,8 +685,8 @@ class DatasetTextRuleFilter(PipelineStep):
             r"\begin{table}",
             r"\begin{tabular}",
             # Formatting,
-            # r'\textit',
-            # r'\textbb',
+            r"\textit",
+            r"\textbb",
             # Math (strong signals)
             r"\begin{equation}",
             r"\begin{align}",
@@ -737,7 +736,6 @@ class DatasetTextRuleFilter(PipelineStep):
             True if all equations render successfully or no equations exist
             False if any equation fails to render
         """
-        import re
 
         # Patterns to find math equations (same as in MathTest)
         patterns = [
@@ -776,11 +774,6 @@ class DatasetTextRuleFilter(PipelineStep):
 
             # All equations rendered successfully
             return True
-
-        except ImportError:
-            # If we can't import the render module, skip this check
-            # This allows the filter to work even without the rendering dependencies
-            return True
         except Exception as e:
             # If any unexpected error occurs during validation, be conservative and filter out
             print(f"Error validating math equations: {e}")
@@ -793,7 +786,6 @@ class DatasetTextRuleFilter(PipelineStep):
             True if any table cell contains <br> tags
             False otherwise
         """
-        import re
 
         # Check if there are any tables in the text
         if "<table" not in text.lower() or "<br" not in text.lower():
@@ -824,7 +816,6 @@ class DatasetTextRuleFilter(PipelineStep):
             False if any HTML table is malformed
         """
         # Find all HTML table blocks
-        import re
 
         # Check if there are any <table> tags at all
         if "<table" not in text.lower():
@@ -915,25 +906,26 @@ class DatasetTextRuleFilter(PipelineStep):
         if text is None:
             return sample
 
-        # # Check for markdown tables
-        # if self._contains_markdown_table(text):
-        #     return None  # Filter out samples with markdown tables
+        # Check for markdown tables
+        if self._contains_markdown_table(text):
+            return None  # Filter out samples with markdown tables
 
-        # # Check for HTML tables and validate them
-        # if not self._extract_and_validate_html_tables(text):
-        #     return None  # Filter out samples with malformed HTML tables
+        # Check for HTML tables and validate them
+        if not self._extract_and_validate_html_tables(text):
+            return None  # Filter out samples with malformed HTML tables
 
-        # # Check for <br> tags in table cells
+        # Check for <br> tags in table cells
+        # Note, this was maybe removing too much stuff
         # if self._contains_br_in_table_cells(text):
         #     return None  # Filter out samples with <br> tags in table cells
 
-        # # Check if all math equations can render without errors
-        # if not self._validate_math_equations(text):
-        #     return None  # Filter out samples with invalid math equations
+        # Check if all math equations can render without errors
+        if not self._validate_math_equations(text):
+            return None  # Filter out samples with invalid math equations
 
-        # # Check for mathematical symbols
-        # if self._contains_math_symbols(text):
-        #     return None  # Filter out samples with mathematical symbols
+        # Check for mathematical symbols
+        if self._contains_math_symbols(text):
+            return None  # Filter out samples with mathematical symbols
 
         # Check for LaTeX formatting outside math equations
         if self._contains_latex_formatting_outside_math(text):
@@ -969,8 +961,6 @@ class ReformatLatexBoldItalic(PipelineStep):
 
         text = page_data.natural_text
 
-        import re
-
         # Math equation patterns to preserve
         math_patterns = [
             r"\$\$(.+?)\$\$",  # $$...$$
@@ -995,8 +985,6 @@ class ReformatLatexBoldItalic(PipelineStep):
         # Use a function to find matching braces
         def replace_latex_command(text, command, markdown):
             """Replace LaTeX command with markdown, handling nested braces."""
-            import re
-
             pattern = r"\\" + command + r"\{"
             result = []
             i = 0
@@ -1355,6 +1343,12 @@ if __name__ == "__main__":
         help="Index of sample to display in detail",
     )
     parser.add_argument(
+        "--sample-md",
+        type=str,
+        default=None,
+        help="Substring of markdown path to search for and display",
+    )
+    parser.add_argument(
         "--analyze-tokens",
         action="store_true",
         help="Analyze token length distribution across entire dataset",
@@ -1518,14 +1512,39 @@ if __name__ == "__main__":
             sample = dataset.samples[i]
             print(f"  {i}: MD: {sample['markdown_path'].name}, PDF: {sample['pdf_path'].name}")
 
+        # Determine which sample to display
+        sample_idx = args.sample_index
+
+        # If --sample-md is provided, search for matching sample
+        if args.sample_md:
+            matching_indices = []
+            for i, s in enumerate(dataset.samples):
+                if args.sample_md in str(s["markdown_path"]):
+                    matching_indices.append(i)
+
+            if len(matching_indices) == 0:
+                print(f"\nError: No samples found containing '{args.sample_md}' in markdown path.")
+                exit(1)
+            elif len(matching_indices) > 1:
+                print(f"\nError: Multiple samples found containing '{args.sample_md}':")
+                for idx in matching_indices[:10]:  # Show first 10 matches
+                    print(f"  {idx}: {dataset.samples[idx]['markdown_path']}")
+                if len(matching_indices) > 10:
+                    print(f"  ... and {len(matching_indices) - 10} more")
+                print("\nPlease use a more specific substring.")
+                exit(1)
+            else:
+                sample_idx = matching_indices[0]
+                print(f"\nFound sample at index {sample_idx}: {dataset.samples[sample_idx]['markdown_path']}")
+
         # Check if sample index is valid
-        if args.sample_index >= len(dataset):
-            print(f"\nError: Sample index {args.sample_index} out of range. Only {len(dataset)} samples available.")
+        if sample_idx >= len(dataset):
+            print(f"\nError: Sample index {sample_idx} out of range. Only {len(dataset)} samples available.")
             exit(1)
 
         # Get the requested sample
-        print(f"\n=== Displaying sample {args.sample_index} ===")
-        sample = dataset[args.sample_index]
+        print(f"\n=== Displaying sample {sample_idx} ===")
+        sample = dataset[sample_idx]
 
         # Display sample information based on pipeline output
         print("\nSample keys:", list(sample.keys()))
