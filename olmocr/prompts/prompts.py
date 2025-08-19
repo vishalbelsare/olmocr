@@ -16,6 +16,7 @@ def build_openai_silver_data_prompt(base_text: str) -> str:
         f"RAW_TEXT_START\n{base_text}\nRAW_TEXT_END"
     )
 
+
 def build_openai_silver_data_prompt_v2(base_text: str) -> str:
     return (
         f"Below is the image of one page of a PDF document, as well as some raw textual content that was previously extracted for it that includes position information for each image and block of text (The origin [0x0] of the coordinates is in the lower left corner of the image). "
@@ -29,6 +30,7 @@ def build_openai_silver_data_prompt_v2(base_text: str) -> str:
         f"Do not hallucinate.\n"
         f"RAW_TEXT_START\n{base_text}\nRAW_TEXT_END"
     )
+
 
 def build_openai_silver_data_prompt_v2_simple(page_width: int, page_height: int) -> str:
     return (
@@ -44,6 +46,7 @@ def build_openai_silver_data_prompt_v2_simple(page_width: int, page_height: int)
         f"Page width: {page_width}, Page height: {page_height}"
     )
 
+
 def build_openai_silver_data_prompt_v3_simple(page_width: int, page_height: int) -> str:
     return (
         f"Attached is the image of one page of a PDF document."
@@ -58,7 +61,6 @@ def build_openai_silver_data_prompt_v3_simple(page_width: int, page_height: int)
         f"Do not hallucinate.\n"
         f"Page width: {page_width}, Page height: {page_height}"
     )
-
 
 
 @dataclass(frozen=True)

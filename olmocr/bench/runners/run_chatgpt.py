@@ -8,16 +8,19 @@ from olmocr.bench.prompts import (
     build_basic_prompt,
     build_openai_silver_data_prompt_no_document_anchoring,
 )
-from olmocr.data.renderpdf import render_pdf_to_base64png, get_png_dimensions_from_base64
+from olmocr.data.renderpdf import (
+    get_png_dimensions_from_base64,
+    render_pdf_to_base64png,
+)
 from olmocr.prompts.anchor import get_anchor_text
 from olmocr.prompts.prompts import (
     PageResponse,
     build_finetuning_prompt,
     build_openai_silver_data_prompt,
-    openai_response_format_schema,
     build_openai_silver_data_prompt_v2,
     build_openai_silver_data_prompt_v2_simple,
     build_openai_silver_data_prompt_v3_simple,
+    openai_response_format_schema,
 )
 
 
@@ -65,7 +68,7 @@ def run_chatgpt(
         prompt = build_openai_silver_data_prompt_v2_simple(width, height)
     elif prompt_template == "fullv3simple":
         width, height = get_png_dimensions_from_base64(image_base64)
-        prompt = build_openai_silver_data_prompt_v3_simple(width, height)        
+        prompt = build_openai_silver_data_prompt_v3_simple(width, height)
     else:
         raise ValueError("Unknown prompt template")
 
@@ -82,7 +85,7 @@ def run_chatgpt(
         ],
         temperature=temperature,
         max_completion_tokens=20000,
-        #reasoning_effort="high",
+        # reasoning_effort="high",
         response_format=openai_response_format_schema() if response_template == "json" else None,
         safety_identifier="olmocr-bench-runner",
     )

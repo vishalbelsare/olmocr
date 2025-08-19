@@ -1,10 +1,14 @@
+import argparse
 import base64
 import json
 import logging
+import multiprocessing
 import re
+import shutil
 from abc import ABC, abstractmethod
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, fields, replace
+from html.parser import HTMLParser
 from io import BytesIO
 from os import PathLike
 from pathlib import Path
@@ -419,8 +423,6 @@ class LatexBracketNormalizer(PipelineStep):
 
         # Update the page_data with normalized text
         # Since PageResponse is frozen, we need to create a new instance
-        from olmocr.prompts.prompts import PageResponse
-
         new_page_data = PageResponse(
             primary_language=page_data.primary_language,
             is_rotation_valid=page_data.is_rotation_valid,
@@ -482,8 +484,6 @@ class RotationAugmentation(PipelineStep):
         else:  # 270
             correction = 90
 
-        from olmocr.prompts.prompts import PageResponse
-
         new_page_data = PageResponse(
             primary_language=page_data.primary_language,
             is_rotation_valid=False,  # Mark as invalid since we rotated it
@@ -523,7 +523,7 @@ class FilterOutRotatedDocuments(PipelineStep):
 @dataclass(frozen=True, slots=True)
 class DatasetTextRuleFilter(PipelineStep):
     """Pipeline step that filters samples based on text content rules.
-    
+
     Filters out samples that:
     - Contain markdown tables
     - Contain malformed HTML tables
@@ -539,205 +539,244 @@ class DatasetTextRuleFilter(PipelineStep):
         # Look for pipe-separated table patterns
         # Markdown tables have lines like: | col1 | col2 | col3 |
         # And separator lines like: |------|------|------|
-        lines = text.split('\n')
+        lines = text.split("\n")
         for i, line in enumerate(lines):
             line = line.strip()
             # Check if line looks like a table row
-            if line.startswith('|') and line.endswith('|') and line.count('|') >= 3:
+            if line.startswith("|") and line.endswith("|") and line.count("|") >= 3:
                 # Check if next line is a separator (for header rows)
                 if i + 1 < len(lines):
                     next_line = lines[i + 1].strip()
-                    if next_line.startswith('|') and '-' in next_line:
+                    if next_line.startswith("|") and "-" in next_line:
                         return True
                 # Check if previous line is a separator (for data rows)
                 if i > 0:
                     prev_line = lines[i - 1].strip()
-                    if prev_line.startswith('|') and '-' in prev_line:
+                    if prev_line.startswith("|") and "-" in prev_line:
                         return True
         return False
 
     def _contains_math_symbols(self, text: str) -> bool:
         """Check if text contains specific mathematical symbols outside of table cells.
-        
+
         Returns:
             True if text contains any of the specified math symbols outside tables
             False otherwise
         """
-        import re
-        
         # List of mathematical symbols to check for
         math_symbols = [
             # Set theory and logic
-            '∈', '∉', '⊂', '⊃', '⊆', '⊇', '∅', '∪', '∩', '∀', '∃', '¬',
+            "∈",
+            "∉",
+            "⊂",
+            "⊃",
+            "⊆",
+            "⊇",
+            "∅",
+            "∪",
+            "∩",
+            "∀",
+            "∃",
+            "¬",
             # Common mathematical operators
-            '⊕', '⊗', '⊙',
+            "⊕",
+            "⊗",
+            "⊙",
             # Calculus and analysis
-            '∂', '∇', '∆', '∫', '∬', '∭', '∮', '∏', '∑', '√', '∛', '∜',
+            "∂",
+            "∇",
+            "∆",
+            "∫",
+            "∬",
+            "∭",
+            "∮",
+            "∏",
+            "∑",
+            "√",
+            "∛",
+            "∜",
             # Arrows and relations
-            '⊥', 
+            "⊥",
             # Other common math symbols
-            '∠', '∡', '⊤', '⊢', '⊣', '∴', '∵', '∶', '∷', '∝', '≅', '≆', '≇', '≊', '≋',
+            "∠",
+            "∡",
+            "⊤",
+            "⊢",
+            "⊣",
+            "∴",
+            "∵",
+            "∶",
+            "∷",
+            "∝",
+            "≅",
+            "≆",
+            "≇",
+            "≊",
+            "≋",
             # Matrix and vector notation
-            '⊕', '⊖', '⊗', '⊘', '⊙', '⊚', '⊛', '⊜', '⊝',
+            "⊕",
+            "⊖",
+            "⊗",
+            "⊘",
+            "⊙",
+            "⊚",
+            "⊛",
+            "⊜",
+            "⊝",
         ]
-        
+
         # First, remove all HTML tables from the text
         text_without_tables = text
-        
+
         # Remove HTML tables
-        table_pattern = re.compile(r'<table\b[^>]*>.*?</table>', re.IGNORECASE | re.DOTALL)
-        text_without_tables = table_pattern.sub('', text_without_tables)
-        
+        table_pattern = re.compile(r"<table\b[^>]*>.*?</table>", re.IGNORECASE | re.DOTALL)
+        text_without_tables = table_pattern.sub("", text_without_tables)
+
         # Now check if any of these symbols appear in the text without tables
         for symbol in math_symbols:
             if symbol in text_without_tables:
                 return True
-        
+
         return False
-    
+
     def _contains_latex_tables(self, text: str) -> bool:
         """Check if text contains LaTeX table environments.
-        
+
         Returns:
             True if text contains LaTeX tables (\\begin{table}, \\begin{tabular}, etc.)
             False otherwise
         """
         import re
-        
+
         # Check for various LaTeX table environments
         latex_table_patterns = [
-            r'\\begin\{table\}',
-            r'\\begin\{tabular\}',
+            r"\\begin\{table\}",
+            r"\\begin\{tabular\}",
         ]
-        
+
         # Check if any LaTeX table pattern exists in the text
         for pattern in latex_table_patterns:
             if re.search(pattern, text, re.IGNORECASE):
                 return True
-            
+
         return False
-    
+
     def _contains_latex_formatting_outside_math(self, text: str) -> bool:
         """Check if text contains LaTeX formatting commands outside of math equations.
-        
+
         Returns:
             True if text contains LaTeX formatting commands outside math equations
             False otherwise
         """
         import re
-        
+
         # List of common LaTeX formatting commands to check for
         latex_commands = [
             # Lists & basic content
-            r'\begin{itemize}',
-            r'\begin{enumerate}',
-            r'\item',
-
+            r"\begin{itemize}",
+            r"\begin{enumerate}",
+            r"\item",
             # Figures, tables, and captions
-            r'\begin{figure}',
-            r'\includegraphics',
-            r'\caption',
-            r'\label',
-            r'\ref',
-            r'\eqref',
-            r'\begin{table}',
-            r'\begin{tabular}',
-
+            r"\begin{figure}",
+            r"\includegraphics",
+            r"\caption",
+            r"\label",
+            r"\ref",
+            r"\eqref",
+            r"\begin{table}",
+            r"\begin{tabular}",
             # Formatting,
             # r'\textit',
             # r'\textbb',
-
             # Math (strong signals)
-            r'\begin{equation}',
-            r'\begin{align}',
-            r'\frac',
-            r'\sum',
-            r'\int',
-            r'\sqrt',
-            r'\prod',
-            r'\lim',
-            r'\binom',
-            r'\mathbb',
-            r'\mathcal',
-            r'\to',
-            r'\varphi',
-            r'\cdot',
-            r'\langle',
-            r'\rangle',
-
+            r"\begin{equation}",
+            r"\begin{align}",
+            r"\frac",
+            r"\sum",
+            r"\int",
+            r"\sqrt",
+            r"\prod",
+            r"\lim",
+            r"\binom",
+            r"\mathbb",
+            r"\mathcal",
+            r"\to",
+            r"\varphi",
+            r"\cdot",
+            r"\langle",
+            r"\rangle",
             # Citations (bibliography stacks)
-            r'\cite',
+            r"\cite",
         ]
 
-        
         # First, remove all math equations from the text
         text_without_math = text
-        
+
         # Patterns for math equations
         math_patterns = [
             r"\$\$(.+?)\$\$",  # $$...$$
             r"\\\((.+?)\\\)",  # \(...\)
             r"\\\[(.+?)\\\]",  # \[...\]
         ]
-        
+
         # Remove all math equations
         for pattern in math_patterns:
-            text_without_math = re.sub(pattern, '', text_without_math, flags=re.DOTALL)
-        
+            text_without_math = re.sub(pattern, "", text_without_math, flags=re.DOTALL)
+
         # Check if any LaTeX commands appear in the remaining text
         for command in latex_commands:
             if command in text_without_math:
                 return True
-        
+
         return False
-    
+
     def _validate_math_equations(self, text: str) -> bool:
         """Check if all math equations in the text can render without errors.
-        
+
         Returns:
             True if all equations render successfully or no equations exist
             False if any equation fails to render
         """
         import re
-        
+
         # Patterns to find math equations (same as in MathTest)
         patterns = [
             r"\$\$(.+?)\$\$",  # $$...$$
             r"\\\((.+?)\\\)",  # \(...\)
             r"\\\[(.+?)\\\]",  # \[...\]
         ]
-        
+
         equations = []
         for pattern in patterns:
             # Find all matches for the current pattern
             matches = re.findall(pattern, text, re.DOTALL)
             equations.extend([eq.strip() for eq in matches])
-        
+
         # If no equations found, that's fine
         if not equations:
             return True
-        
+
         # Try to render each equation
         try:
             from olmocr.bench.katex.render import render_equation
-            
+
             for equation in equations:
                 # Skip empty or whitespace-only equations
                 if not equation or not equation.strip():
                     continue
-                    
+
                 # Try to render the equation
                 rendered = render_equation(equation)
-                
+
                 # Check if there was an error
-                if rendered is None or (hasattr(rendered, 'error') and rendered.error):
+                if rendered is None or (hasattr(rendered, "error") and rendered.error):
                     # Equation failed to render
                     logger.warning(f"Could not render equation '{repr(equation)}', skipping sample")
                     return False
-            
+
             # All equations rendered successfully
             return True
-            
+
         except ImportError:
             # If we can't import the render module, skip this check
             # This allows the filter to work even without the rendering dependencies
@@ -746,87 +785,86 @@ class DatasetTextRuleFilter(PipelineStep):
             # If any unexpected error occurs during validation, be conservative and filter out
             print(f"Error validating math equations: {e}")
             return False
-    
+
     def _contains_br_in_table_cells(self, text: str) -> bool:
         """Check if text contains <br> tags within HTML table cells.
-        
+
         Returns:
             True if any table cell contains <br> tags
             False otherwise
         """
         import re
-        
+
         # Check if there are any tables in the text
-        if '<table' not in text.lower() or '<br' not in text.lower():
+        if "<table" not in text.lower() or "<br" not in text.lower():
             return False  # No tables or no <br> tags at all
-        
+
         # Pattern to find HTML tables (case-insensitive)
-        table_pattern = re.compile(r'<table\b[^>]*>.*?</table>', re.IGNORECASE | re.DOTALL)
+        table_pattern = re.compile(r"<table\b[^>]*>.*?</table>", re.IGNORECASE | re.DOTALL)
         tables = table_pattern.findall(text)
-        
+
         # Check each table for <br> tags in cells
         for table_html in tables:
             # Pattern to find table cells (td and th tags)
-            cell_pattern = re.compile(r'<(td|th)\b[^>]*>(.*?)</\1>', re.IGNORECASE | re.DOTALL)
+            cell_pattern = re.compile(r"<(td|th)\b[^>]*>(.*?)</\1>", re.IGNORECASE | re.DOTALL)
             cells = cell_pattern.findall(table_html)
-            
+
             for tag_type, cell_content in cells:
                 # Check if cell content contains <br> tags (any variation)
-                if re.search(r'<br\s*/?>', cell_content, re.IGNORECASE):
+                if re.search(r"<br\s*/?>", cell_content, re.IGNORECASE):
                     return True
-        
+
         return False
-    
+
     def _extract_and_validate_html_tables(self, text: str) -> bool:
         """Extract HTML tables and validate they parse correctly.
-        
+
         Returns:
             True if all HTML tables are valid or no tables exist
             False if any HTML table is malformed
         """
         # Find all HTML table blocks
         import re
-        
+
         # Check if there are any <table> tags at all
-        if '<table' not in text.lower():
+        if "<table" not in text.lower():
             return True  # No tables, that's fine
-            
+
         # Pattern to find HTML tables (case-insensitive)
         # Note: This pattern might not catch malformed tables where </table> is missing
-        table_pattern = re.compile(r'<table\b[^>]*>.*?</table>', re.IGNORECASE | re.DOTALL)
+        table_pattern = re.compile(r"<table\b[^>]*>.*?</table>", re.IGNORECASE | re.DOTALL)
         tables = table_pattern.findall(text)
-        
+
         # Also check for unclosed table tags
-        table_open_count = len(re.findall(r'<table\b[^>]*>', text, re.IGNORECASE))
-        table_close_count = len(re.findall(r'</table>', text, re.IGNORECASE))
-        
+        table_open_count = len(re.findall(r"<table\b[^>]*>", text, re.IGNORECASE))
+        table_close_count = len(re.findall(r"</table>", text, re.IGNORECASE))
+
         if table_open_count != table_close_count:
             return False  # Mismatched table tags
-        
+
         if not tables and table_open_count > 0:
             # Found table tags but couldn't extract complete tables
             return False
-        
+
         # Try to parse each table
-        from html.parser import HTMLParser
-        
+
         class TableValidator(HTMLParser):
             def __init__(self):
                 super().__init__()
                 self.tag_stack = []
                 self.is_valid = True
                 self.error_msg = None
-                
+
             def handle_starttag(self, tag, attrs):
                 self.tag_stack.append(tag.lower())
-                
+
             def handle_endtag(self, tag):
                 tag = tag.lower()
                 if not self.tag_stack:
                     self.is_valid = False
                     self.error_msg = f"Unexpected closing tag: {tag}"
                     return
-                    
+
                 # Check if the closing tag matches the most recent opening tag
                 if self.tag_stack[-1] == tag:
                     self.tag_stack.pop()
@@ -842,11 +880,11 @@ class DatasetTextRuleFilter(PipelineStep):
                     else:
                         self.is_valid = False
                         self.error_msg = f"Mismatched tag: expected {self.tag_stack[-1]}, got {tag}"
-                        
+
             def error(self, message):
                 self.is_valid = False
                 self.error_msg = message
-        
+
         # Validate each table
         for table_html in tables:
             parser = TableValidator()
@@ -860,90 +898,90 @@ class DatasetTextRuleFilter(PipelineStep):
             except Exception:
                 # Any parsing exception means the table is malformed
                 return False
-                
+
         return True
 
     def __call__(self, sample: Sample) -> Optional[Sample]:
         """Filter samples based on text content rules."""
         # Get the natural text from page_data if it exists
         text = None
-        
+
         if "page_data" in sample:
             page_data = sample["page_data"]
             if hasattr(page_data, "natural_text") and page_data.natural_text:
                 text = page_data.natural_text
-        
+
         # If no text to check, pass the sample through
         if text is None:
             return sample
-        
-        # Check for markdown tables
-        if self._contains_markdown_table(text):
-            return None  # Filter out samples with markdown tables
-        
-        # Check for HTML tables and validate them
-        if not self._extract_and_validate_html_tables(text):
-            return None  # Filter out samples with malformed HTML tables
-        
-        # Check for <br> tags in table cells
-        if self._contains_br_in_table_cells(text):
-            return None  # Filter out samples with <br> tags in table cells
-        
-        # Check if all math equations can render without errors
-        if not self._validate_math_equations(text):
-            return None  # Filter out samples with invalid math equations
-        
-        # Check for mathematical symbols
-        if self._contains_math_symbols(text):
-            return None  # Filter out samples with mathematical symbols
-        
+
+        # # Check for markdown tables
+        # if self._contains_markdown_table(text):
+        #     return None  # Filter out samples with markdown tables
+
+        # # Check for HTML tables and validate them
+        # if not self._extract_and_validate_html_tables(text):
+        #     return None  # Filter out samples with malformed HTML tables
+
+        # # Check for <br> tags in table cells
+        # if self._contains_br_in_table_cells(text):
+        #     return None  # Filter out samples with <br> tags in table cells
+
+        # # Check if all math equations can render without errors
+        # if not self._validate_math_equations(text):
+        #     return None  # Filter out samples with invalid math equations
+
+        # # Check for mathematical symbols
+        # if self._contains_math_symbols(text):
+        #     return None  # Filter out samples with mathematical symbols
+
         # Check for LaTeX formatting outside math equations
         if self._contains_latex_formatting_outside_math(text):
             return None  # Filter out samples with \textit or \textbf outside math
-        
+
         # Check for LaTeX tables
         if self._contains_latex_tables(text):
             return None  # Filter out samples with LaTeX tables
-        
+
         return sample
 
 
 @dataclass(frozen=True, slots=True)
 class ReformatLatexBoldItalic(PipelineStep):
     """Pipeline step that converts LaTeX formatting commands to markdown equivalents.
-    
+
     Converts:
     - \\textit{...} to *...* (italic)
     - \\textbf{...} to **...** (bold)
-    
+
     These conversions only happen outside of math equations.
     """
-    
+
     def __call__(self, sample: Sample) -> Optional[Sample]:
         """Convert LaTeX formatting to markdown in the sample text."""
         # Get the natural text from page_data if it exists
         if "page_data" not in sample:
             return sample
-            
+
         page_data = sample["page_data"]
         if not hasattr(page_data, "natural_text") or not page_data.natural_text:
             return sample
-            
+
         text = page_data.natural_text
-        
+
         import re
-        
+
         # Math equation patterns to preserve
         math_patterns = [
             r"\$\$(.+?)\$\$",  # $$...$$
             r"\\\((.+?)\\\)",  # \(...\)
             r"\\\[(.+?)\\\]",  # \[...\]
         ]
-        
+
         # Store math equations with placeholders
         math_placeholders = []
         preserved_text = text
-        
+
         # Replace math equations with placeholders
         for i, pattern in enumerate(math_patterns):
             matches = re.finditer(pattern, preserved_text, re.DOTALL)
@@ -951,65 +989,66 @@ class ReformatLatexBoldItalic(PipelineStep):
                 placeholder = f"__MATH_PLACEHOLDER_{i}_{j}__"
                 math_placeholders.append((placeholder, match.group(0)))
                 preserved_text = preserved_text.replace(match.group(0), placeholder, 1)
-        
+
         # Now convert LaTeX formatting to markdown
         # We need to handle nested braces properly
         # Use a function to find matching braces
         def replace_latex_command(text, command, markdown):
             """Replace LaTeX command with markdown, handling nested braces."""
             import re
-            pattern = r'\\' + command + r'\{'
+
+            pattern = r"\\" + command + r"\{"
             result = []
             i = 0
-            
+
             while i < len(text):
                 match = re.search(pattern, text[i:])
                 if not match:
                     result.append(text[i:])
                     break
-                
+
                 # Add text before the match
-                result.append(text[i:i + match.start()])
-                
+                result.append(text[i : i + match.start()])
+
                 # Find the matching closing brace
                 start_pos = i + match.end()
                 brace_count = 1
                 j = start_pos
-                
+
                 while j < len(text) and brace_count > 0:
-                    if text[j] == '{':
+                    if text[j] == "{":
                         brace_count += 1
-                    elif text[j] == '}':
+                    elif text[j] == "}":
                         brace_count -= 1
                     j += 1
-                
+
                 if brace_count == 0:
                     # Extract the content between braces
-                    content = text[start_pos:j-1]
+                    content = text[start_pos : j - 1]
                     result.append(markdown + content + markdown)
                     i = j
                 else:
                     # Unmatched braces, keep original
-                    result.append(text[i + match.start():i + match.end()])
+                    result.append(text[i + match.start() : i + match.end()])
                     i = i + match.end()
-            
-            return ''.join(result)
-        
+
+            return "".join(result)
+
         # Handle \textbf{...} -> **...**
-        preserved_text = replace_latex_command(preserved_text, 'textbf', '**')
-        
+        preserved_text = replace_latex_command(preserved_text, "textbf", "**")
+
         # Handle \textit{...} -> *...*
-        preserved_text = replace_latex_command(preserved_text, 'textit', '*')
-        
+        preserved_text = replace_latex_command(preserved_text, "textit", "*")
+
         # Restore math equations
         for placeholder, original in math_placeholders:
             preserved_text = preserved_text.replace(placeholder, original)
-        
+
         # Create a new PageResponse with the updated text (since it's frozen)
-        from dataclasses import replace
+
         updated_page_data = replace(page_data, natural_text=preserved_text)
         sample["page_data"] = updated_page_data
-        
+
         return sample
 
 
@@ -1382,78 +1421,71 @@ if __name__ == "__main__":
     if args.save_filtered:
         import shutil
         from pathlib import Path
-        
+
         save_dir = Path(args.save_filtered)
-        
+
         # Clear and create directory
         if save_dir.exists():
             shutil.rmtree(save_dir)
         save_dir.mkdir(parents=True, exist_ok=True)
-        
+
         print(f"\n=== Checking for filtered samples ===")
         print(f"Will save filtered samples to: {save_dir}")
-        
+
         # Function to process and copy a single sample
         def process_and_copy_sample(idx, dataset_samples, save_dir_str):
             """Process a sample and return info if it's filtered.
-            
+
             Note: This function needs to be picklable for ProcessPoolExecutor,
             so it takes simple arguments rather than complex objects.
             """
             import shutil
             from pathlib import Path
-            
+
             # Recreate dataset with same parameters
             # This is needed because dataset objects can't be pickled
             temp_dataset = BaseMarkdownPDFDataset.__new__(BaseMarkdownPDFDataset)
             temp_dataset.samples = dataset_samples
             temp_dataset.pipeline_steps = pipeline_steps
-            
+
             try:
                 sample = temp_dataset[idx]
                 if sample is None:
                     # This sample was filtered out - get the original paths
                     original_sample = dataset_samples[idx]
-                    md_path = original_sample['markdown_path']
-                    pdf_path = original_sample['pdf_path']
-                    
+                    md_path = original_sample["markdown_path"]
+                    pdf_path = original_sample["pdf_path"]
+
                     save_dir = Path(save_dir_str)
-                    
+
                     # Create subdirectory to preserve some structure
                     # Use the parent directory name and file name
                     rel_path = md_path.parent.name
                     target_subdir = save_dir / rel_path
                     target_subdir.mkdir(parents=True, exist_ok=True)
-                    
+
                     # Copy markdown file
                     target_md = target_subdir / md_path.name
                     shutil.copy2(md_path, target_md)
-                    
+
                     # Copy PDF file
                     target_pdf = target_subdir / pdf_path.name
                     shutil.copy2(pdf_path, target_pdf)
-                    
-                    return {
-                        'index': idx,
-                        'markdown_path': str(md_path),
-                        'pdf_path': str(pdf_path)
-                    }
+
+                    return {"index": idx, "markdown_path": str(md_path), "pdf_path": str(pdf_path)}
                 return None
             except Exception as e:
                 print(f"Error processing sample {idx}: {e}")
                 return None
-        
+
         # Process all samples in parallel
         filtered_samples = []
         print(f"Processing {len(dataset)} samples to find and copy filtered ones...")
-        
+
         with ProcessPoolExecutor(max_workers=8) as executor:
             # Submit all tasks
-            futures = {
-                executor.submit(process_and_copy_sample, idx, dataset.samples, str(save_dir)): idx 
-                for idx in range(len(dataset))
-            }
-            
+            futures = {executor.submit(process_and_copy_sample, idx, dataset.samples, str(save_dir)): idx for idx in range(len(dataset))}
+
             # Process results with progress bar
             with tqdm(total=len(dataset), desc="Processing samples") as pbar:
                 for future in as_completed(futures):
@@ -1461,20 +1493,20 @@ if __name__ == "__main__":
                     if result is not None:
                         filtered_samples.append(result)
                     pbar.update(1)
-        
+
         # Sort filtered samples by index for consistent output
-        filtered_samples.sort(key=lambda x: x['index'])
-        
+        filtered_samples.sort(key=lambda x: x["index"])
+
         print(f"\nFound and copied {len(filtered_samples)} filtered samples to: {save_dir}")
-        
+
         if filtered_samples:
             print(f"First 10 filtered samples:")
             for i, sample_info in enumerate(filtered_samples[:10]):
-                md_name = Path(sample_info['markdown_path']).name
+                md_name = Path(sample_info["markdown_path"]).name
                 print(f"  Sample {sample_info['index']}: {md_name}")
             if len(filtered_samples) > 10:
                 print(f"  ... and {len(filtered_samples) - 10} more")
-        
+
         # Exit early if --save-filtered is used (don't continue with other analyses)
         print("\nCompleted saving filtered samples. Exiting.")
         exit(0)
