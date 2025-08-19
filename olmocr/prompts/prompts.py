@@ -158,6 +158,14 @@ def build_no_anchoring_yaml_prompt() -> str:
         "Return your output as markdown, with a front matter section on top specifying values for the primary_language, is_rotation_valid, rotation_correction, is_table, and is_diagram parameters."
     )
 
+def build_no_anchoring_v4_yaml_prompt() -> str:
+    return (
+        "Attached is one page of a document that you must process. "
+        "Just return the plain text representation of this document as if you were reading it naturally. Convert equations to LateX and tables to HTML.\n"
+        "If there are any figures or charts, label them with the following markdown syntax ![Alt text describing the contents of the figure](page_startx_starty_width_height.png)\n"
+        "Return your output as markdown, with a front matter section on top specifying values for the primary_language, is_rotation_valid, rotation_correction, is_table, and is_diagram parameters."
+    )
+
 
 # Extracts the anchor text component from an existing prompt string
 def extract_raw_text(prompt: str) -> str:

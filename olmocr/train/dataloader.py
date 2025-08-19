@@ -30,7 +30,7 @@ from tqdm import tqdm
 
 from olmocr.data.renderpdf import render_pdf_to_base64png
 from olmocr.prompts.anchor import get_anchor_text
-from olmocr.prompts.prompts import PageResponse, build_finetuning_prompt
+from olmocr.prompts.prompts import PageResponse, build_finetuning_prompt, build_no_anchoring_yaml_prompt, build_no_anchoring_v4_yaml_prompt
 
 # Type alias for samples
 Sample: TypeAlias = Dict[str, Any]
@@ -336,11 +336,7 @@ class NewYamlFinetuningPromptWithNoAnchoring(PipelineStep):
     """Applies the standard fine tuning prompt"""
 
     def __call__(self, sample: Sample) -> Sample:
-        sample["instruction_prompt"] = (
-            f"Attached is one page of a document that you must process. "
-            f"Just return the plain text representation of this document as if you were reading it naturally. Convert equations to LateX and tables to markdown.\n"
-            f"Return your output as markdown, with a front matter section on top specifying values for the primary_language, is_rotation_valid, rotation_correction, is_table, and is_diagram parameters."
-        )
+        sample["instruction_prompt"] = build_no_anchoring_v4_yaml_prompt()
         return sample
 
 
