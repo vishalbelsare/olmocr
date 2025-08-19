@@ -530,6 +530,8 @@ class DatasetTextRuleFilter(PipelineStep):
     - Contain <br> tags within HTML table cells
     - Contain math equations that fail to render
     - Contain mathematical symbols (∈, ∉, ⊂, ⊃, ⊆, ⊇, ∅, ∪, ∩, ∀, ∃, ¬) outside of table cells
+    - Contain \textit or \textbf LaTeX commands outside of math equations
+    - Contain LaTeX table environments (\begin{table}, \begin{tabular}, etc.)
     """
 
     def _contains_markdown_table(self, text: str) -> bool:
@@ -590,6 +592,57 @@ class DatasetTextRuleFilter(PipelineStep):
         for symbol in math_symbols:
             if symbol in text_without_tables:
                 return True
+        
+        return False
+    
+    def _contains_latex_tables(self, text: str) -> bool:
+        """Check if text contains LaTeX table environments.
+        
+        Returns:
+            True if text contains LaTeX tables (\\begin{table}, \\begin{tabular}, etc.)
+            False otherwise
+        """
+        import re
+        
+        # Check for various LaTeX table environments
+        latex_table_patterns = [
+            r'\\begin\{table\}',
+            r'\\begin\{tabular\}',
+        ]
+        
+        # Check if any LaTeX table pattern exists in the text
+        for pattern in latex_table_patterns:
+            if re.search(pattern, text, re.IGNORECASE):
+                return True
+            
+        return False
+    
+    def _contains_latex_formatting_outside_math(self, text: str) -> bool:
+        """Check if text contains \\textit or \\textbf outside of math equations.
+        
+        Returns:
+            True if text contains \\textit or \\textbf outside math equations
+            False otherwise
+        """
+        import re
+        
+        # First, remove all math equations from the text
+        text_without_math = text
+        
+        # Patterns for math equations
+        math_patterns = [
+            r"\$\$(.+?)\$\$",  # $$...$$
+            r"\\\((.+?)\\\)",  # \(...\)
+            r"\\\[(.+?)\\\]",  # \[...\]
+        ]
+        
+        # Remove all math equations
+        for pattern in math_patterns:
+            text_without_math = re.sub(pattern, '', text_without_math, flags=re.DOTALL)
+        
+        # Now check if \textit or \textbf appear in the remaining text
+        if r'\textit' in text_without_math or r'\textbf' in text_without_math or r'\textsuperscript' in text_without_math or r'\textsubscript':
+            return True
         
         return False
     
@@ -779,25 +832,33 @@ class DatasetTextRuleFilter(PipelineStep):
         if text is None:
             return sample
         
-        # # Check for markdown tables
-        # if self._contains_markdown_table(text):
-        #     return None  # Filter out samples with markdown tables
+        # Check for markdown tables
+        if self._contains_markdown_table(text):
+            return None  # Filter out samples with markdown tables
         
-        # # Check for HTML tables and validate them
-        # if not self._extract_and_validate_html_tables(text):
-        #     return None  # Filter out samples with malformed HTML tables
+        # Check for HTML tables and validate them
+        if not self._extract_and_validate_html_tables(text):
+            return None  # Filter out samples with malformed HTML tables
         
-        # # Check for <br> tags in table cells
-        # if self._contains_br_in_table_cells(text):
-        #     return None  # Filter out samples with <br> tags in table cells
+        # Check for <br> tags in table cells
+        if self._contains_br_in_table_cells(text):
+            return None  # Filter out samples with <br> tags in table cells
         
-        # # Check if all math equations can render without errors
-        # if not self._validate_math_equations(text):
-        #     return None  # Filter out samples with invalid math equations
+        # Check if all math equations can render without errors
+        if not self._validate_math_equations(text):
+            return None  # Filter out samples with invalid math equations
         
-        # Check for mathematical symbols
+        Check for mathematical symbols
         if self._contains_math_symbols(text):
             return None  # Filter out samples with mathematical symbols
+        
+        Check for LaTeX formatting outside math equations
+        if self._contains_latex_formatting_outside_math(text):
+            return None  # Filter out samples with \textit or \textbf outside math
+        
+        # Check for LaTeX tables
+        if self._contains_latex_tables(text):
+            return None  # Filter out samples with LaTeX tables
         
         return sample
 
