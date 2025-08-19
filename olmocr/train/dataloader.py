@@ -527,6 +527,7 @@ class DatasetTextRuleFilter(PipelineStep):
     Filters out samples that:
     - Contain markdown tables
     - Contain malformed HTML tables
+    - Contain <br> tags within HTML table cells
     """
 
     def _contains_markdown_table(self, text: str) -> bool:
@@ -551,6 +552,36 @@ class DatasetTextRuleFilter(PipelineStep):
                         return True
         return False
 
+    def _contains_br_in_table_cells(self, text: str) -> bool:
+        """Check if text contains <br> tags within HTML table cells.
+        
+        Returns:
+            True if any table cell contains <br> tags
+            False otherwise
+        """
+        import re
+        
+        # Check if there are any tables in the text
+        if '<table' not in text.lower() or '<br' not in text.lower():
+            return False  # No tables or no <br> tags at all
+        
+        # Pattern to find HTML tables (case-insensitive)
+        table_pattern = re.compile(r'<table\b[^>]*>.*?</table>', re.IGNORECASE | re.DOTALL)
+        tables = table_pattern.findall(text)
+        
+        # Check each table for <br> tags in cells
+        for table_html in tables:
+            # Pattern to find table cells (td and th tags)
+            cell_pattern = re.compile(r'<(td|th)\b[^>]*>(.*?)</\1>', re.IGNORECASE | re.DOTALL)
+            cells = cell_pattern.findall(table_html)
+            
+            for tag_type, cell_content in cells:
+                # Check if cell content contains <br> tags (any variation)
+                if re.search(r'<br\s*/?>', cell_content, re.IGNORECASE):
+                    return True
+        
+        return False
+    
     def _extract_and_validate_html_tables(self, text: str) -> bool:
         """Extract HTML tables and validate they parse correctly.
         
@@ -658,6 +689,10 @@ class DatasetTextRuleFilter(PipelineStep):
         # Check for HTML tables and validate them
         if not self._extract_and_validate_html_tables(text):
             return None  # Filter out samples with malformed HTML tables
+        
+        # Check for <br> tags in table cells
+        if self._contains_br_in_table_cells(text):
+            return None  # Filter out samples with <br> tags in table cells
         
         return sample
 

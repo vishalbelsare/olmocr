@@ -32,11 +32,12 @@ dataset:
       pipeline: &basic_pipeline
         - name: FrontMatterParser
           front_matter_class: PageResponse
-        - name: FilterOutRotatedDocuments
+        - name: DatasetTextRuleFilter
+        # - name: FilterOutRotatedDocuments
         - name: PDFRenderer
           target_longest_image_dim: 1288
-        - name: RotationAugmentation
-          probability: 0.002
+        # - name: RotationAugmentation
+        #   probability: 0.002
         - name: NewYamlFinetuningPromptWithNoAnchoring
         - name: FrontMatterOutputFormat
         - name: InstructUserMessages
