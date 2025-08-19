@@ -974,6 +974,11 @@ if __name__ == "__main__":
         type=str,
         help="Save the processed image to the specified file path (e.g., output.png)",
     )
+    parser.add_argument(
+        "--save-filtered",
+        type=str,
+        help="Directory to save .md and .pdf files of filtered samples (samples that return None from pipeline)",
+    )
 
     args = parser.parse_args()
 
@@ -1021,6 +1026,107 @@ if __name__ == "__main__":
     dataset = BaseMarkdownPDFDataset(root_dir, pipeline_steps)
 
     print(f"Dataset length: {len(dataset)}")
+
+    # Handle --save-filtered option
+    if args.save_filtered:
+        import shutil
+        from pathlib import Path
+        
+        save_dir = Path(args.save_filtered)
+        
+        # Clear and create directory
+        if save_dir.exists():
+            shutil.rmtree(save_dir)
+        save_dir.mkdir(parents=True, exist_ok=True)
+        
+        print(f"\n=== Checking for filtered samples ===")
+        print(f"Will save filtered samples to: {save_dir}")
+        
+        # Function to process and copy a single sample
+        def process_and_copy_sample(idx, dataset_samples, save_dir_str):
+            """Process a sample and return info if it's filtered.
+            
+            Note: This function needs to be picklable for ProcessPoolExecutor,
+            so it takes simple arguments rather than complex objects.
+            """
+            import shutil
+            from pathlib import Path
+            
+            # Recreate dataset with same parameters
+            # This is needed because dataset objects can't be pickled
+            temp_dataset = BaseMarkdownPDFDataset.__new__(BaseMarkdownPDFDataset)
+            temp_dataset.samples = dataset_samples
+            temp_dataset.pipeline_steps = pipeline_steps
+            
+            try:
+                sample = temp_dataset[idx]
+                if sample is None:
+                    # This sample was filtered out - get the original paths
+                    original_sample = dataset_samples[idx]
+                    md_path = original_sample['markdown_path']
+                    pdf_path = original_sample['pdf_path']
+                    
+                    save_dir = Path(save_dir_str)
+                    
+                    # Create subdirectory to preserve some structure
+                    # Use the parent directory name and file name
+                    rel_path = md_path.parent.name
+                    target_subdir = save_dir / rel_path
+                    target_subdir.mkdir(parents=True, exist_ok=True)
+                    
+                    # Copy markdown file
+                    target_md = target_subdir / md_path.name
+                    shutil.copy2(md_path, target_md)
+                    
+                    # Copy PDF file
+                    target_pdf = target_subdir / pdf_path.name
+                    shutil.copy2(pdf_path, target_pdf)
+                    
+                    return {
+                        'index': idx,
+                        'markdown_path': str(md_path),
+                        'pdf_path': str(pdf_path)
+                    }
+                return None
+            except Exception as e:
+                print(f"Error processing sample {idx}: {e}")
+                return None
+        
+        # Process all samples in parallel
+        filtered_samples = []
+        print(f"Processing {len(dataset)} samples to find and copy filtered ones...")
+        
+        with ProcessPoolExecutor(max_workers=8) as executor:
+            # Submit all tasks
+            futures = {
+                executor.submit(process_and_copy_sample, idx, dataset.samples, str(save_dir)): idx 
+                for idx in range(len(dataset))
+            }
+            
+            # Process results with progress bar
+            with tqdm(total=len(dataset), desc="Processing samples") as pbar:
+                for future in as_completed(futures):
+                    result = future.result()
+                    if result is not None:
+                        filtered_samples.append(result)
+                    pbar.update(1)
+        
+        # Sort filtered samples by index for consistent output
+        filtered_samples.sort(key=lambda x: x['index'])
+        
+        print(f"\nFound and copied {len(filtered_samples)} filtered samples to: {save_dir}")
+        
+        if filtered_samples:
+            print(f"First 10 filtered samples:")
+            for i, sample_info in enumerate(filtered_samples[:10]):
+                md_name = Path(sample_info['markdown_path']).name
+                print(f"  Sample {sample_info['index']}: {md_name}")
+            if len(filtered_samples) > 10:
+                print(f"  ... and {len(filtered_samples) - 10} more")
+        
+        # Exit early if --save-filtered is used (don't continue with other analyses)
+        print("\nCompleted saving filtered samples. Exiting.")
+        exit(0)
 
     if len(dataset) > 0:
         # Show first few samples
