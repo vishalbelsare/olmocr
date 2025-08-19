@@ -528,6 +528,8 @@ class DatasetTextRuleFilter(PipelineStep):
     - Contain markdown tables
     - Contain malformed HTML tables
     - Contain <br> tags within HTML table cells
+    - Contain math equations that fail to render
+    - Contain mathematical symbols (∈, ∉, ⊂, ⊃, ⊆, ⊇, ∅, ∪, ∩, ∀, ∃, ¬) outside of table cells
     """
 
     def _contains_markdown_table(self, text: str) -> bool:
@@ -552,6 +554,101 @@ class DatasetTextRuleFilter(PipelineStep):
                         return True
         return False
 
+    def _contains_math_symbols(self, text: str) -> bool:
+        """Check if text contains specific mathematical symbols outside of table cells.
+        
+        Returns:
+            True if text contains any of the specified math symbols outside tables
+            False otherwise
+        """
+        import re
+        
+        # List of mathematical symbols to check for
+        math_symbols = [
+            # Set theory and logic
+            '∈', '∉', '⊂', '⊃', '⊆', '⊇', '∅', '∪', '∩', '∀', '∃', '¬',
+            # Common mathematical operators
+            '⊕', '⊗', '⊙',
+            # Calculus and analysis
+            '∂', '∇', '∆', '∫', '∬', '∭', '∮', '∏', '∑', '√', '∛', '∜',
+            # Arrows and relations
+            '⊥', 
+            # Other common math symbols
+            '∠', '∡', '⊤', '⊢', '⊣', '∴', '∵', '∶', '∷', '∝', '≅', '≆', '≇', '≊', '≋',
+            # Matrix and vector notation
+            '⊕', '⊖', '⊗', '⊘', '⊙', '⊚', '⊛', '⊜', '⊝',
+        ]
+        
+        # First, remove all HTML tables from the text
+        text_without_tables = text
+        
+        # Remove HTML tables
+        table_pattern = re.compile(r'<table\b[^>]*>.*?</table>', re.IGNORECASE | re.DOTALL)
+        text_without_tables = table_pattern.sub('', text_without_tables)
+        
+        # Now check if any of these symbols appear in the text without tables
+        for symbol in math_symbols:
+            if symbol in text_without_tables:
+                return True
+        
+        return False
+    
+    def _validate_math_equations(self, text: str) -> bool:
+        """Check if all math equations in the text can render without errors.
+        
+        Returns:
+            True if all equations render successfully or no equations exist
+            False if any equation fails to render
+        """
+        import re
+        
+        # Patterns to find math equations (same as in MathTest)
+        patterns = [
+            r"\$\$(.+?)\$\$",  # $$...$$
+            r"\\\((.+?)\\\)",  # \(...\)
+            r"\\\[(.+?)\\\]",  # \[...\]
+        ]
+        
+        equations = []
+        for pattern in patterns:
+            # Find all matches for the current pattern
+            matches = re.findall(pattern, text, re.DOTALL)
+            equations.extend([eq.strip() for eq in matches])
+        
+        # If no equations found, that's fine
+        if not equations:
+            return True
+        
+        # Try to render each equation
+        try:
+            from olmocr.bench.katex.render import render_equation
+            
+            for equation in equations:
+                # Skip empty or whitespace-only equations
+                if not equation or not equation.strip():
+                    continue
+                    
+                # Try to render the equation
+                rendered = render_equation(equation)
+                
+                # Check if there was an error
+                if rendered is None or (hasattr(rendered, 'error') and rendered.error):
+                    # Equation failed to render
+                    logger.warning(f"Could not render equation '{repr(equation)}', skipping sample")
+                    return False
+            
+            # All equations rendered successfully
+            return True
+            
+        except ImportError:
+            # If we can't import the render module, skip this check
+            # This allows the filter to work even without the rendering dependencies
+            return True
+        except Exception as e:
+            # If any unexpected error occurs during validation, be conservative and filter out
+            print(f"Error validating math equations: {e}")
+            return False
+    
     def _contains_br_in_table_cells(self, text: str) -> bool:
         """Check if text contains <br> tags within HTML table cells.
         
@@ -682,17 +779,25 @@ class DatasetTextRuleFilter(PipelineStep):
         if text is None:
             return sample
         
-        # Check for markdown tables
-        if self._contains_markdown_table(text):
-            return None  # Filter out samples with markdown tables
+        # # Check for markdown tables
+        # if self._contains_markdown_table(text):
+        #     return None  # Filter out samples with markdown tables
         
-        # Check for HTML tables and validate them
-        if not self._extract_and_validate_html_tables(text):
-            return None  # Filter out samples with malformed HTML tables
+        # # Check for HTML tables and validate them
+        # if not self._extract_and_validate_html_tables(text):
+        #     return None  # Filter out samples with malformed HTML tables
         
-        # Check for <br> tags in table cells
-        if self._contains_br_in_table_cells(text):
-            return None  # Filter out samples with <br> tags in table cells
+        # # Check for <br> tags in table cells
+        # if self._contains_br_in_table_cells(text):
+        #     return None  # Filter out samples with <br> tags in table cells
+        
+        # # Check if all math equations can render without errors
+        # if not self._validate_math_equations(text):
+        #     return None  # Filter out samples with invalid math equations
+        
+        # Check for mathematical symbols
+        if self._contains_math_symbols(text):
+            return None  # Filter out samples with mathematical symbols
         
         return sample
 
