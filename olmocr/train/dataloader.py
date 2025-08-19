@@ -530,7 +530,7 @@ class DatasetTextRuleFilter(PipelineStep):
     - Contain <br> tags within HTML table cells
     - Contain math equations that fail to render
     - Contain mathematical symbols (∈, ∉, ⊂, ⊃, ⊆, ⊇, ∅, ∪, ∩, ∀, ∃, ¬) outside of table cells
-    - Contain \textit or \textbf LaTeX commands outside of math equations
+    - Contain LaTeX formatting commands (\\textit, \\textbf, \\texttt, etc.) outside of math equations
     - Contain LaTeX table environments (\begin{table}, \begin{tabular}, etc.)
     """
 
@@ -618,13 +618,57 @@ class DatasetTextRuleFilter(PipelineStep):
         return False
     
     def _contains_latex_formatting_outside_math(self, text: str) -> bool:
-        """Check if text contains \\textit or \\textbf outside of math equations.
+        """Check if text contains LaTeX formatting commands outside of math equations.
         
         Returns:
-            True if text contains \\textit or \\textbf outside math equations
+            True if text contains LaTeX formatting commands outside math equations
             False otherwise
         """
         import re
+        
+        # List of common LaTeX formatting commands to check for
+        latex_commands = [
+            # Lists & basic content
+            r'\begin{itemize}',
+            r'\begin{enumerate}',
+            r'\item',
+
+            # Figures, tables, and captions
+            r'\begin{figure}',
+            r'\includegraphics',
+            r'\caption',
+            r'\label',
+            r'\ref',
+            r'\eqref',
+            r'\begin{table}',
+            r'\begin{tabular}',
+
+            # Formatting,
+            # r'\textit',
+            # r'\textbb',
+
+            # Math (strong signals)
+            r'\begin{equation}',
+            r'\begin{align}',
+            r'\frac',
+            r'\sum',
+            r'\int',
+            r'\sqrt',
+            r'\prod',
+            r'\lim',
+            r'\binom',
+            r'\mathbb',
+            r'\mathcal',
+            r'\to',
+            r'\varphi',
+            r'\cdot',
+            r'\langle',
+            r'\rangle',
+
+            # Citations (bibliography stacks)
+            r'\cite',
+        ]
+
         
         # First, remove all math equations from the text
         text_without_math = text
@@ -640,9 +684,10 @@ class DatasetTextRuleFilter(PipelineStep):
         for pattern in math_patterns:
             text_without_math = re.sub(pattern, '', text_without_math, flags=re.DOTALL)
         
-        # Now check if \textit or \textbf appear in the remaining text
-        if r'\textit' in text_without_math or r'\textbf' in text_without_math or r'\textsuperscript' in text_without_math or r'\textsubscript':
-            return True
+        # Check if any LaTeX commands appear in the remaining text
+        for command in latex_commands:
+            if command in text_without_math:
+                return True
         
         return False
     
@@ -848,17 +893,122 @@ class DatasetTextRuleFilter(PipelineStep):
         if not self._validate_math_equations(text):
             return None  # Filter out samples with invalid math equations
         
-        Check for mathematical symbols
+        # Check for mathematical symbols
         if self._contains_math_symbols(text):
             return None  # Filter out samples with mathematical symbols
         
-        Check for LaTeX formatting outside math equations
+        # Check for LaTeX formatting outside math equations
         if self._contains_latex_formatting_outside_math(text):
             return None  # Filter out samples with \textit or \textbf outside math
         
         # Check for LaTeX tables
         if self._contains_latex_tables(text):
             return None  # Filter out samples with LaTeX tables
+        
+        return sample
+
+
+@dataclass(frozen=True, slots=True)
+class ReformatLatexBoldItalic(PipelineStep):
+    """Pipeline step that converts LaTeX formatting commands to markdown equivalents.
+    
+    Converts:
+    - \\textit{...} to *...* (italic)
+    - \\textbf{...} to **...** (bold)
+    
+    These conversions only happen outside of math equations.
+    """
+    
+    def __call__(self, sample: Sample) -> Optional[Sample]:
+        """Convert LaTeX formatting to markdown in the sample text."""
+        # Get the natural text from page_data if it exists
+        if "page_data" not in sample:
+            return sample
+            
+        page_data = sample["page_data"]
+        if not hasattr(page_data, "natural_text") or not page_data.natural_text:
+            return sample
+            
+        text = page_data.natural_text
+        
+        import re
+        
+        # Math equation patterns to preserve
+        math_patterns = [
+            r"\$\$(.+?)\$\$",  # $$...$$
+            r"\\\((.+?)\\\)",  # \(...\)
+            r"\\\[(.+?)\\\]",  # \[...\]
+        ]
+        
+        # Store math equations with placeholders
+        math_placeholders = []
+        preserved_text = text
+        
+        # Replace math equations with placeholders
+        for i, pattern in enumerate(math_patterns):
+            matches = re.finditer(pattern, preserved_text, re.DOTALL)
+            for j, match in enumerate(matches):
+                placeholder = f"__MATH_PLACEHOLDER_{i}_{j}__"
+                math_placeholders.append((placeholder, match.group(0)))
+                preserved_text = preserved_text.replace(match.group(0), placeholder, 1)
+        
+        # Now convert LaTeX formatting to markdown
+        # We need to handle nested braces properly
+        # Use a function to find matching braces
+        def replace_latex_command(text, command, markdown):
+            """Replace LaTeX command with markdown, handling nested braces."""
+            import re
+            pattern = r'\\' + command + r'\{'
+            result = []
+            i = 0
+            
+            while i < len(text):
+                match = re.search(pattern, text[i:])
+                if not match:
+                    result.append(text[i:])
+                    break
+                
+                # Add text before the match
+                result.append(text[i:i + match.start()])
+                
+                # Find the matching closing brace
+                start_pos = i + match.end()
+                brace_count = 1
+                j = start_pos
+                
+                while j < len(text) and brace_count > 0:
+                    if text[j] == '{':
+                        brace_count += 1
+                    elif text[j] == '}':
+                        brace_count -= 1
+                    j += 1
+                
+                if brace_count == 0:
+                    # Extract the content between braces
+                    content = text[start_pos:j-1]
+                    result.append(markdown + content + markdown)
+                    i = j
+                else:
+                    # Unmatched braces, keep original
+                    result.append(text[i + match.start():i + match.end()])
+                    i = i + match.end()
+            
+            return ''.join(result)
+        
+        # Handle \textbf{...} -> **...**
+        preserved_text = replace_latex_command(preserved_text, 'textbf', '**')
+        
+        # Handle \textit{...} -> *...*
+        preserved_text = replace_latex_command(preserved_text, 'textit', '*')
+        
+        # Restore math equations
+        for placeholder, original in math_placeholders:
+            preserved_text = preserved_text.replace(placeholder, original)
+        
+        # Create a new PageResponse with the updated text (since it's frozen)
+        from dataclasses import replace
+        updated_page_data = replace(page_data, natural_text=preserved_text)
+        sample["page_data"] = updated_page_data
         
         return sample
 

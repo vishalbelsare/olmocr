@@ -11,6 +11,7 @@ from olmocr.train.dataloader import (
     FilterOutRotatedDocuments,
     FrontMatterParser,
     LatexBracketNormalizer,
+    ReformatLatexBoldItalic,
 )
 
 
@@ -242,6 +243,304 @@ But no markdown tables. Just some text with | pipes | that aren't tables.
         
         result = self.filter(sample_mixed)
         self.assertIsNotNone(result, "Should pass through with valid HTML and no markdown tables")
+
+    def test_br_tags_in_table_cells(self):
+        """Test that tables with <br> tags in cells are filtered out."""
+        sample_with_br = {
+            "page_data": PageResponse(
+                primary_language="en",
+                is_rotation_valid=True,
+                rotation_correction=0,
+                is_table=False,
+                is_diagram=False,
+                natural_text="""<table>
+                <tr>
+                    <td>Cell 1<br>with break</td>
+                    <td>Cell 2</td>
+                </tr>
+            </table>""",
+            )
+        }
+        
+        result = self.filter(sample_with_br)
+        self.assertIsNone(result, "Should filter out tables with <br> tags in cells")
+
+    def test_br_tags_outside_tables(self):
+        """Test that <br> tags outside tables are allowed."""
+        sample_br_outside = {
+            "page_data": PageResponse(
+                primary_language="en",
+                is_rotation_valid=True,
+                rotation_correction=0,
+                is_table=False,
+                is_diagram=False,
+                natural_text="""Some text<br>with break
+            <table>
+                <tr>
+                    <td>Cell 1</td>
+                    <td>Cell 2</td>
+                </tr>
+            </table>""",
+            )
+        }
+        
+        result = self.filter(sample_br_outside)
+        self.assertIsNotNone(result, "Should allow <br> tags outside tables")
+
+    def test_multiple_br_variations_in_cells(self):
+        """Test detection of various <br> tag formats in table cells."""
+        sample_br_variations = {
+            "page_data": PageResponse(
+                primary_language="en",
+                is_rotation_valid=True,
+                rotation_correction=0,
+                is_table=False,
+                is_diagram=False,
+                natural_text="""<table>
+                <tr>
+                    <th>Header<br/>with break</th>
+                    <th>Header 2</th>
+                </tr>
+                <tr>
+                    <td>Data<BR>break</td>
+                    <td>Data 2</td>
+                </tr>
+            </table>""",
+            )
+        }
+        
+        result = self.filter(sample_br_variations)
+        self.assertIsNone(result, "Should filter out tables with any <br> variation in cells")
+
+
+class TestReformatLatexBoldItalic(unittest.TestCase):
+    """Test cases for ReformatLatexBoldItalic."""
+
+    def setUp(self):
+        """Set up test fixtures."""
+        self.reformatter = ReformatLatexBoldItalic()
+
+    def test_simple_bold_conversion(self):
+        """Test conversion of \\textbf to markdown bold."""
+        sample = {
+            "page_data": PageResponse(
+                primary_language="en",
+                is_rotation_valid=True,
+                rotation_correction=0,
+                is_table=False,
+                is_diagram=False,
+                natural_text="This is \\textbf{bold} text.",
+            )
+        }
+        
+        result = self.reformatter(sample)
+        self.assertEqual(result["page_data"].natural_text, "This is **bold** text.")
+
+    def test_simple_italic_conversion(self):
+        """Test conversion of \\textit to markdown italic."""
+        sample = {
+            "page_data": PageResponse(
+                primary_language="en",
+                is_rotation_valid=True,
+                rotation_correction=0,
+                is_table=False,
+                is_diagram=False,
+                natural_text="This is \\textit{italic} text.",
+            )
+        }
+        
+        result = self.reformatter(sample)
+        self.assertEqual(result["page_data"].natural_text, "This is *italic* text.")
+
+    def test_bold_and_italic_conversion(self):
+        """Test conversion of both bold and italic."""
+        sample = {
+            "page_data": PageResponse(
+                primary_language="en",
+                is_rotation_valid=True,
+                rotation_correction=0,
+                is_table=False,
+                is_diagram=False,
+                natural_text="This has \\textbf{bold} and \\textit{italic} text.",
+            )
+        }
+        
+        result = self.reformatter(sample)
+        self.assertEqual(result["page_data"].natural_text, "This has **bold** and *italic* text.")
+
+    def test_latex_in_math_equation_preserved(self):
+        """Test that LaTeX commands inside math equations are preserved."""
+        sample = {
+            "page_data": PageResponse(
+                primary_language="en",
+                is_rotation_valid=True,
+                rotation_correction=0,
+                is_table=False,
+                is_diagram=False,
+                natural_text="Text outside $$ \\textbf{x} = \\textit{y} $$ more text.",
+            )
+        }
+        
+        result = self.reformatter(sample)
+        self.assertEqual(result["page_data"].natural_text, "Text outside $$ \\textbf{x} = \\textit{y} $$ more text.")
+
+    def test_mixed_context(self):
+        """Test LaTeX both inside and outside math equations."""
+        sample = {
+            "page_data": PageResponse(
+                primary_language="en",
+                is_rotation_valid=True,
+                rotation_correction=0,
+                is_table=False,
+                is_diagram=False,
+                natural_text="The \\textbf{equation} is $$ \\textbf{x} = 2 $$ and \\textit{important}.",
+            )
+        }
+        
+        result = self.reformatter(sample)
+        self.assertEqual(result["page_data"].natural_text, "The **equation** is $$ \\textbf{x} = 2 $$ and *important*.")
+
+    def test_nested_braces(self):
+        """Test handling of nested braces in LaTeX commands."""
+        sample = {
+            "page_data": PageResponse(
+                primary_language="en",
+                is_rotation_valid=True,
+                rotation_correction=0,
+                is_table=False,
+                is_diagram=False,
+                natural_text="This is \\textbf{bold with {nested} braces} text.",
+            )
+        }
+        
+        result = self.reformatter(sample)
+        self.assertEqual(result["page_data"].natural_text, "This is **bold with {nested} braces** text.")
+
+    def test_multiple_occurrences(self):
+        """Test multiple occurrences of LaTeX commands."""
+        sample = {
+            "page_data": PageResponse(
+                primary_language="en",
+                is_rotation_valid=True,
+                rotation_correction=0,
+                is_table=False,
+                is_diagram=False,
+                natural_text="\\textbf{First} and \\textbf{second} bold, \\textit{first} and \\textit{second} italic.",
+            )
+        }
+        
+        result = self.reformatter(sample)
+        self.assertEqual(
+            result["page_data"].natural_text, 
+            "**First** and **second** bold, *first* and *second* italic."
+        )
+
+    def test_latex_in_parenthesis_delimiter(self):
+        """Test LaTeX preserved in \\(...\\) math delimiter."""
+        sample = {
+            "page_data": PageResponse(
+                primary_language="en",
+                is_rotation_valid=True,
+                rotation_correction=0,
+                is_table=False,
+                is_diagram=False,
+                natural_text="Text \\( \\textbf{math} \\) more text \\textbf{bold}.",
+            )
+        }
+        
+        result = self.reformatter(sample)
+        self.assertEqual(result["page_data"].natural_text, "Text \\( \\textbf{math} \\) more text **bold**.")
+
+    def test_latex_in_bracket_delimiter(self):
+        """Test LaTeX preserved in \\[...\\] math delimiter."""
+        sample = {
+            "page_data": PageResponse(
+                primary_language="en",
+                is_rotation_valid=True,
+                rotation_correction=0,
+                is_table=False,
+                is_diagram=False,
+                natural_text="Text \\[ \\textit{math} \\] more text \\textit{italic}.",
+            )
+        }
+        
+        result = self.reformatter(sample)
+        self.assertEqual(result["page_data"].natural_text, "Text \\[ \\textit{math} \\] more text *italic*.")
+
+    def test_no_latex_formatting(self):
+        """Test that text without LaTeX formatting passes through unchanged."""
+        sample = {
+            "page_data": PageResponse(
+                primary_language="en",
+                is_rotation_valid=True,
+                rotation_correction=0,
+                is_table=False,
+                is_diagram=False,
+                natural_text="Plain text without any formatting.",
+            )
+        }
+        
+        result = self.reformatter(sample)
+        self.assertEqual(result["page_data"].natural_text, "Plain text without any formatting.")
+
+    def test_no_page_data(self):
+        """Test handling of samples without page_data."""
+        sample = {"markdown_path": Path("/path/to/file.md")}
+        
+        result = self.reformatter(sample)
+        self.assertEqual(result, sample)
+
+    def test_no_natural_text(self):
+        """Test handling of samples without natural_text."""
+        sample = {
+            "page_data": PageResponse(
+                primary_language="en",
+                is_rotation_valid=True,
+                rotation_correction=0,
+                is_table=False,
+                is_diagram=False,
+                natural_text=None,
+            )
+        }
+        
+        result = self.reformatter(sample)
+        self.assertIsNone(result["page_data"].natural_text)
+    
+    def test_complex_latex_with_parenthesis_delimiters(self):
+        """Test complex LaTeX text with \\(...\\) delimiters and textit."""
+        input_text = """= a_0 \\int_0^P \\cos \\frac{2m\\pi x}{P} dx 
++ \\sum_{n=1}^{\\infty} \\frac{a_n}{2} \\int_0^P \\cos \\frac{2(m+n)\\pi x}{P} + \\cos \\frac{2(m-n)\\pi x}{P} dx 
++ b_n \\int_0^P \\sin \\frac{2(m+n)\\pi x}{P} - \\sin \\frac{2(m-n)\\pi x}{P} dx.
+
+Since \\( m \\) and \\( n \\) are both positive integers we have seen already that all these integrals are zero \\textit{except for the cases where} \\( m = n \\). In the case \\( m = n \\) the sine integral is obviously 0, but 
+\\( \\cos(2(m-n)\\pi x/P) = 1 \\) and so that integral gives \\( P \\). Hence
+\\[
+\\int_0^P \\cos \\frac{2m\\pi x}{P} f(x) dx = \\frac{a_m P}{2},
+\\]"""
+        
+        expected_text = """= a_0 \\int_0^P \\cos \\frac{2m\\pi x}{P} dx 
++ \\sum_{n=1}^{\\infty} \\frac{a_n}{2} \\int_0^P \\cos \\frac{2(m+n)\\pi x}{P} + \\cos \\frac{2(m-n)\\pi x}{P} dx 
++ b_n \\int_0^P \\sin \\frac{2(m+n)\\pi x}{P} - \\sin \\frac{2(m-n)\\pi x}{P} dx.
+
+Since \\( m \\) and \\( n \\) are both positive integers we have seen already that all these integrals are zero *except for the cases where* \\( m = n \\). In the case \\( m = n \\) the sine integral is obviously 0, but 
+\\( \\cos(2(m-n)\\pi x/P) = 1 \\) and so that integral gives \\( P \\). Hence
+\\[
+\\int_0^P \\cos \\frac{2m\\pi x}{P} f(x) dx = \\frac{a_m P}{2},
+\\]"""
+        
+        sample = {
+            "page_data": PageResponse(
+                primary_language="en",
+                is_rotation_valid=True,
+                rotation_correction=0,
+                is_table=False,
+                is_diagram=False,
+                natural_text=input_text,
+            )
+        }
+        
+        result = self.reformatter(sample)
+        self.assertEqual(result["page_data"].natural_text, expected_text)
 
 
 class TestFilterOutRotatedDocuments(unittest.TestCase):

@@ -92,6 +92,13 @@ class LatexBracketNormalizerConfig(PipelineStepConfig):
 
 
 @dataclass
+class ReformatLatexBoldItalicConfig(PipelineStepConfig):
+    """Configuration for ReformatLatexBoldItalic step."""
+
+    name: str = "ReformatLatexBoldItalic"
+
+
+@dataclass
 class TokenizerStepConfig(PipelineStepConfig):
     """Configuration for Tokenizer step."""
 
@@ -381,6 +388,7 @@ class Config:
             NewYamlFinetuningPromptWithNoAnchoring,
             PDFRenderer,
             RandomTokenFlipper,
+            ReformatLatexBoldItalic,
             RotationAugmentation,
             StaticLengthDocumentAnchoring,
             Tokenizer,
@@ -473,6 +481,9 @@ class Config:
 
             elif step_name == "AugraphyBasicAugmentations":
                 steps.append(AugraphyBasicAugmentations(probability=step_config.get("probability", 0.5)))
+
+            elif step_name == "ReformatLatexBoldItalic":
+                steps.append(ReformatLatexBoldItalic())
 
             else:
                 raise ValueError(f"Unknown pipeline step: {step_name}")

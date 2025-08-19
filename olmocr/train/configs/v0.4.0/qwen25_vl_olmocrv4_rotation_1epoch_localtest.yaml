@@ -32,6 +32,7 @@ dataset:
       pipeline: &basic_pipeline
         - name: FrontMatterParser
           front_matter_class: PageResponse
+        - name: ReformatLatexBoldItalic
         - name: DatasetTextRuleFilter
         # - name: FilterOutRotatedDocuments
         - name: PDFRenderer
