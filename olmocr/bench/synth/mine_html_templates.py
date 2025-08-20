@@ -31,6 +31,104 @@ def download_s3_pdf(s3_path, local_path):
     return result.returncode == 0
 
 
+def html_to_markdown(html_content):
+    """Convert HTML to markdown, preserving tables as HTML."""
+    soup = BeautifulSoup(html_content, 'html.parser')
+    
+    # First, remove all header and footer elements from the soup
+    for header in soup.find_all('header'):
+        header.decompose()
+    for footer in soup.find_all('footer'):
+        footer.decompose()
+    
+    markdown_parts = []
+    
+    def process_element(element, depth=0):
+        """Recursively process HTML elements."""
+        if element.name == 'table':
+            # Keep tables as HTML
+            return str(element)
+        elif element.name in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']:
+            # Convert headers to markdown
+            level = int(element.name[1])
+            return '#' * level + ' ' + element.get_text().strip()
+        elif element.name == 'p':
+            # Convert paragraphs
+            return element.get_text().strip()
+        elif element.name == 'ul':
+            # Convert unordered lists
+            items = []
+            for li in element.find_all('li', recursive=False):
+                items.append('- ' + li.get_text().strip())
+            return '\n'.join(items)
+        elif element.name == 'ol':
+            # Convert ordered lists
+            items = []
+            for i, li in enumerate(element.find_all('li', recursive=False), 1):
+                items.append(f'{i}. ' + li.get_text().strip())
+            return '\n'.join(items)
+        elif element.name == 'strong' or element.name == 'b':
+            return '**' + element.get_text().strip() + '**'
+        elif element.name == 'em' or element.name == 'i':
+            return '*' + element.get_text().strip() + '*'
+        elif element.name == 'br':
+            return '\n'
+        elif element.name == 'hr':
+            return '\n---\n'
+        elif element.name == 'blockquote':
+            lines = element.get_text().strip().split('\n')
+            return '\n'.join(['> ' + line for line in lines])
+        elif element.name == 'code':
+            return '`' + element.get_text().strip() + '`'
+        elif element.name == 'pre':
+            return '```\n' + element.get_text().strip() + '\n```'
+        elif element.name == 'div' and 'image' in element.get('class', []):
+            # Handle image placeholders
+            return '[Image Placeholder]'
+        elif element.name in ['div', 'section', 'article', 'main']:
+            # For container elements, recursively process children
+            results = []
+            for child in element.children:
+                if hasattr(child, 'name'):
+                    result = process_element(child, depth + 1)
+                    if result:
+                        results.append(result)
+                elif isinstance(child, str):
+                    text = child.strip()
+                    if text:
+                        results.append(text)
+            return '\n\n'.join(results) if results else None
+        else:
+            # For other elements, just get the text
+            text = element.get_text().strip()
+            return text if text else None
+    
+    # Find body or use entire soup if no body
+    body = soup.find('body')
+    if not body:
+        body = soup
+    
+    # Process all direct children of body
+    for element in body.children:
+        if hasattr(element, 'name'):
+            result = process_element(element)
+            if result:
+                markdown_parts.append(result)
+        elif isinstance(element, str):
+            text = element.strip()
+            if text:
+                markdown_parts.append(text)
+    
+    # Join parts with double newlines for better readability
+    markdown = '\n\n'.join(markdown_parts)
+    
+    # Clean up excessive newlines
+    while '\n\n\n' in markdown:
+        markdown = markdown.replace('\n\n\n', '\n\n')
+    
+    return markdown.strip()
+
+
 def extract_code_block(initial_response):
     # Use regex to find the last instance of a code block
     # First try to find HTML specific code blocks
@@ -782,13 +880,21 @@ def process_pdf(pdf_info, args, client):
         # Create output directories
         html_dir = os.path.join(args.output_dir, "html")
         pdfs_dir = os.path.join(args.output_dir, "pdfs")
+        markdown_dir = os.path.join(args.output_dir, "markdown")
         os.makedirs(html_dir, exist_ok=True)
         os.makedirs(pdfs_dir, exist_ok=True)
+        os.makedirs(markdown_dir, exist_ok=True)
 
         # Save HTML to output directory
         html_path = os.path.join(html_dir, f"{pdf_id}_page{page_num}.html")
         with open(html_path, "w") as f:
             f.write(html_content)
+        
+        # Convert HTML to markdown and save
+        markdown_content = html_to_markdown(html_content)
+        markdown_path = os.path.join(markdown_dir, f"{pdf_id}_page{page_num}.md")
+        with open(markdown_path, "w") as f:
+            f.write(markdown_content)
 
         # Extract the page and save as PDF
         original_pdf_path = os.path.join(pdfs_dir, f"{pdf_id}_page{page_num}_original.pdf")
@@ -842,6 +948,7 @@ def process_pdf(pdf_info, args, client):
             "s3_path": s3_path,
             "page_number": page_num,
             "html_path": html_path,
+            "markdown_path": markdown_path,
             "original_pdf_path": original_pdf_path,
             "playwright_pdf_path": playwright_pdf_path,
             "tests": tests,
