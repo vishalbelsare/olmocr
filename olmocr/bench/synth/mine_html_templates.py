@@ -67,7 +67,7 @@ def generate_html_from_image(client, image_base64):
     try:
         # Step 1: Initial analysis and column detection
         analysis_response = client.messages.create(
-            model="claude-3-7-sonnet-20250219",
+            model="claude-sonnet-4-20250514",
             max_tokens=2000,
             temperature=0.1,
             messages=[
@@ -96,7 +96,7 @@ def generate_html_from_image(client, image_base64):
 
         # Step 2: Initial HTML generation with detailed layout instructions
         initial_response = client.messages.create(
-            model="claude-3-7-sonnet-20250219",
+            model="claude-sonnet-4-20250514",
             max_tokens=6000,
             temperature=0.2,
             messages=[
