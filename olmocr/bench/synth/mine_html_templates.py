@@ -13,6 +13,7 @@ from typing import Dict, List
 import pypdf
 from anthropic import Anthropic
 from bs4 import BeautifulSoup
+from markdownify import MarkdownConverter
 from playwright.async_api import async_playwright
 from syntok.segmenter import process
 from tqdm import tqdm
@@ -32,8 +33,21 @@ def download_s3_pdf(s3_path, local_path):
     return result.returncode == 0
 
 
+class PreserveTablesConverter(MarkdownConverter):
+    """
+    Custom MarkdownConverter that preserves HTML tables unchanged
+    """
+    def convert_table(self, el, text, parent_tags):
+        # Get the outer HTML of the table element
+        # BeautifulSoup's prettify or str() should give us the full HTML
+        from bs4 import BeautifulSoup
+        # Create a temporary soup with just this element to get its HTML
+        temp_soup = BeautifulSoup(str(el), 'html.parser')
+        return str(temp_soup.table) if temp_soup.table else str(el)
+
+
 def html_to_markdown(html_content):
-    """Convert HTML to markdown, preserving tables as HTML."""
+    """Convert HTML to markdown using custom converter, preserving tables as HTML."""
     soup = BeautifulSoup(html_content, 'html.parser')
     
     # First, remove all header and footer elements from the soup
@@ -42,86 +56,34 @@ def html_to_markdown(html_content):
     for footer in soup.find_all('footer'):
         footer.decompose()
     
-    markdown_parts = []
+    # Also remove divs with page-header or page-footer classes (in case they weren't converted to header/footer tags)
+    for div in soup.find_all('div', class_='page-header'):
+        div.decompose()
+    for div in soup.find_all('div', class_='page-footer'):
+        div.decompose()
     
-    def process_element(element, depth=0):
-        """Recursively process HTML elements."""
-        if element.name == 'table':
-            # Keep tables as HTML
-            return str(element)
-        elif element.name in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']:
-            # Convert headers to markdown
-            level = int(element.name[1])
-            return '#' * level + ' ' + element.get_text().strip()
-        elif element.name == 'p':
-            # Convert paragraphs
-            return element.get_text().strip()
-        elif element.name == 'ul':
-            # Convert unordered lists
-            items = []
-            for li in element.find_all('li', recursive=False):
-                items.append('- ' + li.get_text().strip())
-            return '\n'.join(items)
-        elif element.name == 'ol':
-            # Convert ordered lists
-            items = []
-            for i, li in enumerate(element.find_all('li', recursive=False), 1):
-                items.append(f'{i}. ' + li.get_text().strip())
-            return '\n'.join(items)
-        elif element.name == 'strong' or element.name == 'b':
-            return '**' + element.get_text().strip() + '**'
-        elif element.name == 'em' or element.name == 'i':
-            return '*' + element.get_text().strip() + '*'
-        elif element.name == 'br':
-            return '\n'
-        elif element.name == 'hr':
-            return '\n---\n'
-        elif element.name == 'blockquote':
-            lines = element.get_text().strip().split('\n')
-            return '\n'.join(['> ' + line for line in lines])
-        elif element.name == 'code':
-            return '`' + element.get_text().strip() + '`'
-        elif element.name == 'pre':
-            return '```\n' + element.get_text().strip() + '\n```'
-        elif element.name == 'div' and 'image' in element.get('class', []):
-            # Handle image placeholders
-            return '[Image Placeholder]'
-        elif element.name in ['div', 'section', 'article', 'main']:
-            # For container elements, recursively process children
-            results = []
-            for child in element.children:
-                if hasattr(child, 'name'):
-                    result = process_element(child, depth + 1)
-                    if result:
-                        results.append(result)
-                elif isinstance(child, str):
-                    text = child.strip()
-                    if text:
-                        results.append(text)
-            return '\n\n'.join(results) if results else None
-        else:
-            # For other elements, just get the text
-            text = element.get_text().strip()
-            return text if text else None
+    # Handle image placeholders - replace div.image with actual img tags for proper markdown conversion
+    for img_div in soup.find_all('div', class_='image'):
+        # Create an img tag with placeholder src
+        img_tag = soup.new_tag('img', src='page.png', alt='Image Placeholder')
+        img_div.replace_with(img_tag)
     
-    # Find body or use entire soup if no body
-    body = soup.find('body')
-    if not body:
-        body = soup
+    # Get the modified HTML
+    modified_html = str(soup)
     
-    # Process all direct children of body
-    for element in body.children:
-        if hasattr(element, 'name'):
-            result = process_element(element)
-            if result:
-                markdown_parts.append(result)
-        elif isinstance(element, str):
-            text = element.strip()
-            if text:
-                markdown_parts.append(text)
+    # Create custom converter instance
+    converter = PreserveTablesConverter(
+        heading_style="ATX",  # Use # style headings
+        bullets="-",  # Use - for unordered lists
+        strip=['a'],  # Remove links but keep text
+        newline_style="BACKSLASH",  # Use backslash for line breaks
+        code_language="",  # Don't add language to code blocks
+        escape_asterisks=False,  # Don't escape asterisks
+        escape_underscores=False  # Don't escape underscores
+    )
     
-    # Join parts with double newlines for better readability
-    markdown = '\n\n'.join(markdown_parts)
+    # Convert to markdown
+    markdown = converter.convert(modified_html)
     
     # Clean up excessive newlines
     while '\n\n\n' in markdown:
@@ -745,7 +707,7 @@ def generate_tests_from_html(html_content: str, pdf_id: str, page_num: int, verb
         if "\n" in second_sentence:
             second_sentence = second_sentence.split("\n")[0].strip()
 
-        max_diffs = round(max(len(first_sentence), len(second_sentence)) * 0.05)
+        max_diffs = round(max(len(first_sentence), len(second_sentence)) * 0.02)
 
         # Too big of a length discrepancy causes issues
         if max_diffs > len(first_sentence) // 2 or max_diffs > len(second_sentence) // 2:
@@ -766,6 +728,53 @@ def generate_tests_from_html(html_content: str, pdf_id: str, page_num: int, verb
 
         if num_order_tests > 5:
             break
+
+    # Step 4: Generate Math tests for LaTeX equations
+    # Get only the body content as a string to search for math patterns
+    body = soup.find('body')
+    if body:
+        body_html = str(body)
+    else:
+        # If no body tag, use the whole soup
+        body_html = str(soup)
+    
+    # Define math patterns to search for
+    math_patterns = [
+        (r"\$\$(.+?)\$\$", re.DOTALL),  # $$...$$ (multiline)
+        (r"\\\((.+?)\\\)", re.DOTALL),  # \(...\) (multiline)
+        (r"\\\[(.+?)\\\]", re.DOTALL),  # \[...\] (multiline)
+    ]
+    
+    math_equations = []
+    for pattern, flags in math_patterns:
+        matches = re.findall(pattern, body_html, flags)
+        for match in matches:
+            # Clean up the match - remove extra whitespace and newlines
+            equation = match.strip()
+            # Skip empty or very short equations
+            if len(equation) > 2:
+                math_equations.append(equation)
+    
+    # Remove duplicates while preserving order
+    seen = set()
+    unique_equations = []
+    for eq in math_equations:
+        if eq not in seen:
+            seen.add(eq)
+            unique_equations.append(eq)
+    
+    # Create math tests for up to 10 unique equations
+    for i, equation in enumerate(unique_equations[:10]):
+        tests.append(
+            {
+                "pdf": pdf_filename,
+                "page": 1,
+                "id": f"{pdf_id}_math_{uuid.uuid4().hex[:8]}",
+                "type": "math",
+                "math": equation,
+                "max_diffs": 0,
+            }
+        )
 
     # Final test filtering out stage
 
@@ -798,6 +807,11 @@ def generate_tests_from_html(html_content: str, pdf_id: str, page_num: int, verb
 
     filtered_tests = []
     for test in tests:
+        # Math tests should not be filtered for LaTeX content
+        if test.get("type") == "math":
+            filtered_tests.append(test)
+            continue
+            
         # Check all text fields in the test for alphanumeric content, LaTeX, and Unicode super/subscripts
         all_valid = True
         for field in text_fields:
