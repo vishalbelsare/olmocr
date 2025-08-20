@@ -230,7 +230,6 @@ task_spec = TaskSpec(
         EnvVar(name="AWS_ACCESS_KEY_ID", secret="ALLENNLP_AWS_ACCESS_KEY_ID"),
         EnvVar(name="AWS_SECRET_ACCESS_KEY", secret="ALLENNLP_AWS_SECRET_ACCESS_KEY"),
         EnvVar(name="WANDB_API_KEY", secret="JAKE_WANDB_API_KEY"),
-        EnvVar(name="HF_TOKEN", secret="HF_TOKEN"),  # For accessing gated models
     ],
     datasets=[
         DataMount.new(mount_path="/weka/oe-data-default", weka="oe-data-default"),
