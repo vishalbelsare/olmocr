@@ -14,6 +14,7 @@ import glob
 
 import torch
 import numpy as np
+import wandb
 from torch.utils.data import Dataset, DataLoader
 from transformers import (
     AutoProcessor,
@@ -25,7 +26,6 @@ from PIL import Image
 import base64
 from io import BytesIO
 
-from olmocr.train.config import Config
 from olmocr.data.renderpdf import render_pdf_to_base64png
 from olmocr.prompts import build_no_anchoring_v4_yaml_prompt
 
@@ -229,10 +229,17 @@ def simple_length_reward(completions: List[str], **kwargs) -> List[float]:
 def main():
     parser = argparse.ArgumentParser(description="GRPO training for OlmOCR")
     parser.add_argument(
-        "--bench_data_folder", 
+        "--train_bench_data_folder", 
         type=str, 
         required=True,
-        help="Path to bench data folder containing JSONL files and pdfs subfolder"
+        help="Path to training bench data folder containing JSONL files and pdfs subfolder"
+    )
+    parser.add_argument(
+        "--eval_bench_data_folder", 
+        type=str, 
+        required=False,
+        default=None,
+        help="Path to evaluation bench data folder (optional, uses train folder if not specified)"
     )
     parser.add_argument(
         "--model_name",
@@ -265,16 +272,45 @@ def main():
         help="Training batch size per device"
     )
     parser.add_argument(
+        "--per_device_eval_batch_size",
+        type=int,
+        default=1,
+        help="Evaluation batch size per device"
+    )
+    parser.add_argument(
         "--gradient_accumulation_steps",
         type=int,
         default=4,
         help="Gradient accumulation steps"
     )
     parser.add_argument(
-        "--max_samples",
+        "--max_train_samples",
         type=int,
-        default=10,
-        help="Maximum number of samples to use (for testing)"
+        default=None,
+        help="Maximum number of training samples to use (default: use all)"
+    )
+    parser.add_argument(
+        "--max_eval_samples",
+        type=int,
+        default=None,
+        help="Maximum number of evaluation samples to use (default: use all)"
+    )
+    parser.add_argument(
+        "--use_wandb",
+        action="store_true",
+        help="Enable Weights & Biases logging"
+    )
+    parser.add_argument(
+        "--wandb_project",
+        type=str,
+        default="olmocr-grpo",
+        help="Weights & Biases project name"
+    )
+    parser.add_argument(
+        "--wandb_run_name",
+        type=str,
+        default=None,
+        help="Weights & Biases run name (default: auto-generated)"
     )
     
     args = parser.parse_args()
@@ -282,9 +318,29 @@ def main():
     # Set up output directory
     os.makedirs(args.output_dir, exist_ok=True)
     
-    # Verify bench_data_folder exists
-    if not os.path.exists(args.bench_data_folder):
-        logger.error(f"Bench data folder not found: {args.bench_data_folder}")
+    # Initialize wandb if enabled
+    if args.use_wandb:
+        wandb.init(
+            project=args.wandb_project,
+            name=args.wandb_run_name,
+            config=vars(args)
+        )
+        logger.info(f"Initialized wandb project: {args.wandb_project}")
+        report_to = ["wandb"]
+    else:
+        report_to = ["tensorboard"]
+    
+    # Verify train bench_data_folder exists
+    if not os.path.exists(args.train_bench_data_folder):
+        logger.error(f"Train bench data folder not found: {args.train_bench_data_folder}")
+        return
+    
+    # Set eval folder to train folder if not specified
+    if args.eval_bench_data_folder is None:
+        args.eval_bench_data_folder = args.train_bench_data_folder
+        logger.info(f"Using train folder for evaluation: {args.eval_bench_data_folder}")
+    elif not os.path.exists(args.eval_bench_data_folder):
+        logger.error(f"Eval bench data folder not found: {args.eval_bench_data_folder}")
         return
     
     # Load processor
@@ -310,34 +366,48 @@ def main():
         trust_remote_code=True,
     )
     
-    # Create dataset from bench data folder
-    logger.info(f"Creating dataset from bench data folder: {args.bench_data_folder}")
-    dataset = OlmOCRDataset(
-        bench_data_folder=args.bench_data_folder,
+    # Create training dataset
+    logger.info(f"Creating training dataset from: {args.train_bench_data_folder}")
+    train_dataset = OlmOCRDataset(
+        bench_data_folder=args.train_bench_data_folder,
         processor=processor,
-        max_samples=args.max_samples,
-        target_longest_image_dim=1024,
+        max_samples=args.max_train_samples,
+        target_longest_image_dim=1288,
     )
     
-    if len(dataset) == 0:
-        logger.error("No samples found in dataset!")
+    if len(train_dataset) == 0:
+        logger.error("No samples found in training dataset!")
         return
+    
+    # Create evaluation dataset
+    logger.info(f"Creating evaluation dataset from: {args.eval_bench_data_folder}")
+    eval_dataset = OlmOCRDataset(
+        bench_data_folder=args.eval_bench_data_folder,
+        processor=processor,
+        max_samples=args.max_eval_samples,
+        target_longest_image_dim=1288,
+    )
+    
+    if len(eval_dataset) == 0:
+        logger.warning("No samples found in evaluation dataset, using training dataset for eval")
+        eval_dataset = train_dataset
     
     # Set up GRPO configuration
     grpo_config = GRPOConfig(
         output_dir=args.output_dir,
         num_train_epochs=args.num_train_epochs,
         per_device_train_batch_size=args.per_device_train_batch_size,
+        per_device_eval_batch_size=args.per_device_eval_batch_size,
         gradient_accumulation_steps=args.gradient_accumulation_steps,
         learning_rate=args.learning_rate,
         logging_steps=10,
         save_steps=100,
         eval_steps=50,
         warmup_steps=10,
-        max_new_tokens=150,
+        max_new_tokens=3000,
         temperature=0.7,
         do_sample=True,
-        report_to=["tensorboard"],
+        report_to=report_to,
         remove_unused_columns=False,
         torch_dtype=torch.bfloat16,
         bf16=True,
@@ -351,7 +421,8 @@ def main():
         model=model,
         args=grpo_config,
         processing_class=processor,
-        train_dataset=dataset,
+        train_dataset=train_dataset,
+        eval_dataset=eval_dataset,
         reward_function=simple_length_reward,
         data_collator=collate_fn,
     )
@@ -367,6 +438,10 @@ def main():
         processor.save_pretrained(args.output_dir)
         
         logger.info("Training completed successfully!")
+        
+        # Close wandb if it was used
+        if args.use_wandb:
+            wandb.finish()
         
     except Exception as e:
         logger.error(f"Training failed: {e}")
