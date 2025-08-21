@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Test suite for GRPO training dataloader.
-Tests the OlmOCRDataset class and its functionality with Olmocr-bench format.
+Tests the OlmOCRBenchDataset class and its functionality with Olmocr-bench format.
 """
 
 import os
@@ -16,7 +16,7 @@ import shutil
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from olmocr.train.grpo_train import OlmOCRDataset, unit_test_reward, load_tests_cached
+from olmocr.train.grpo_train import OlmOCRBenchDataset, olmocr_bench_reward, load_tests_cached
 
 
 class TestGRPODataloader(unittest.TestCase):
@@ -74,7 +74,7 @@ class TestGRPODataloader(unittest.TestCase):
     
     def test_dataset_initialization(self):
         """Test that dataset initializes correctly."""
-        dataset = OlmOCRDataset(
+        dataset = OlmOCRBenchDataset(
             bench_data_folder=self.bench_data_folder,
             processor=None,
             max_samples=None,
@@ -88,7 +88,7 @@ class TestGRPODataloader(unittest.TestCase):
     
     def test_unique_pdf_loading(self):
         """Test that unique PDFs are loaded correctly."""
-        dataset = OlmOCRDataset(
+        dataset = OlmOCRBenchDataset(
             bench_data_folder=self.bench_data_folder,
             processor=None,
             max_samples=None,
@@ -110,7 +110,7 @@ class TestGRPODataloader(unittest.TestCase):
     
     def test_test_id_aggregation(self):
         """Test that test IDs are correctly aggregated per PDF+page."""
-        dataset = OlmOCRDataset(
+        dataset = OlmOCRBenchDataset(
             bench_data_folder=self.bench_data_folder,
             processor=None,
             max_samples=None,
@@ -133,7 +133,7 @@ class TestGRPODataloader(unittest.TestCase):
     
     def test_max_samples_limit(self):
         """Test that max_samples correctly limits the dataset size."""
-        dataset = OlmOCRDataset(
+        dataset = OlmOCRBenchDataset(
             bench_data_folder=self.bench_data_folder,
             processor=None,
             max_samples=2,
@@ -150,7 +150,7 @@ class TestGRPODataloader(unittest.TestCase):
         mock_render.return_value = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="  # 1x1 white pixel PNG
         mock_prompt.return_value = "Test prompt"
         
-        dataset = OlmOCRDataset(
+        dataset = OlmOCRBenchDataset(
             bench_data_folder=self.bench_data_folder,
             processor=None,
             max_samples=1,
@@ -187,7 +187,7 @@ class TestGRPODataloader(unittest.TestCase):
         open(empty_jsonl, "w").close()
         
         # Should still work with other non-empty files
-        dataset = OlmOCRDataset(
+        dataset = OlmOCRBenchDataset(
             bench_data_folder=self.bench_data_folder,
             processor=None,
             max_samples=None,
@@ -209,7 +209,7 @@ class TestGRPODataloader(unittest.TestCase):
             f.write('{"pdf": "test2.pdf", "id": "valid_2"}\n')
         
         # Should skip malformed entries but process valid ones
-        dataset = OlmOCRDataset(
+        dataset = OlmOCRBenchDataset(
             bench_data_folder=self.bench_data_folder,
             processor=None,
             max_samples=None,
@@ -227,7 +227,7 @@ class TestGRPODataloader(unittest.TestCase):
         temp_bad_folder = tempfile.mkdtemp()
         
         with self.assertRaises(ValueError) as context:
-            dataset = OlmOCRDataset(
+            dataset = OlmOCRBenchDataset(
                 bench_data_folder=temp_bad_folder,
                 processor=None,
                 max_samples=None,
@@ -245,7 +245,7 @@ class TestGRPODataloader(unittest.TestCase):
         os.makedirs(os.path.join(temp_folder, "pdfs"))
         
         with self.assertRaises(ValueError) as context:
-            dataset = OlmOCRDataset(
+            dataset = OlmOCRBenchDataset(
                 bench_data_folder=temp_folder,
                 processor=None,
                 max_samples=None,
@@ -258,8 +258,8 @@ class TestGRPODataloader(unittest.TestCase):
         shutil.rmtree(temp_folder)
 
 
-class TestUnitTestReward(unittest.TestCase):
-    """Test cases for the unit_test_reward function."""
+class TestOlmOCRBenchReward(unittest.TestCase):
+    """Test cases for the olmocr_bench_reward function."""
     
     @classmethod
     def setUpClass(cls):
@@ -323,15 +323,15 @@ class TestUnitTestReward(unittest.TestCase):
     def test_perfect_completion(self):
         """Test reward calculation for a completion that passes all tests."""
         completions = ["Hello World\n\nFirst paragraph.\n\nSecond paragraph.\n\nThis is a good document with no bad text."]
-        test_ids = ["test1", "test2", "test3", "test4"]
+        test_ids_list = [["test1", "test2", "test3", "test4"]]
         
-        rewards = unit_test_reward(
+        rewards = olmocr_bench_reward(
             prompts=["prompt"],
             completions=completions,
             completion_ids=[[]],
-            pdf_path="test.pdf",
-            jsonl_file=self.jsonl_path,
-            test_ids=test_ids
+            pdf_path=["test.pdf"],
+            jsonl_file=[self.jsonl_path],
+            test_ids=test_ids_list
         )
         
         self.assertEqual(len(rewards), 1)
@@ -340,15 +340,15 @@ class TestUnitTestReward(unittest.TestCase):
     def test_partial_completion(self):
         """Test reward calculation for a completion that passes some tests."""
         completions = ["This document contains Bad Text but nothing else of note."]
-        test_ids = ["test1", "test2", "test3"]
+        test_ids_list = [["test1", "test2", "test3"]]
         
-        rewards = unit_test_reward(
+        rewards = olmocr_bench_reward(
             prompts=["prompt"],
             completions=completions,
             completion_ids=[[]],
-            pdf_path="test.pdf",
-            jsonl_file=self.jsonl_path,
-            test_ids=test_ids
+            pdf_path=["test.pdf"],
+            jsonl_file=[self.jsonl_path],
+            test_ids=test_ids_list
         )
         
         self.assertEqual(len(rewards), 1)
@@ -362,15 +362,15 @@ class TestUnitTestReward(unittest.TestCase):
             "Bad Text only",
             "",  # Empty completion
         ]
-        test_ids = ["test1", "test2", "test3", "test4"]
+        test_ids_list = [["test1", "test2", "test3", "test4"]] * 3
         
-        rewards = unit_test_reward(
+        rewards = olmocr_bench_reward(
             prompts=["prompt"] * 3,
             completions=completions,
             completion_ids=[[]] * 3,
-            pdf_path="test.pdf",
-            jsonl_file=self.jsonl_path,
-            test_ids=test_ids
+            pdf_path=["test.pdf"] * 3,
+            jsonl_file=[self.jsonl_path] * 3,
+            test_ids=test_ids_list
         )
         
         self.assertEqual(len(rewards), 3)
@@ -384,38 +384,39 @@ class TestUnitTestReward(unittest.TestCase):
     def test_no_relevant_tests(self):
         """Test behavior when no relevant tests are found."""
         completions = ["Some content"]
-        test_ids = ["nonexistent_test"]
+        test_ids_list = [["nonexistent_test"]]
         
-        rewards = unit_test_reward(
+        rewards = olmocr_bench_reward(
             prompts=["prompt"],
             completions=completions,
             completion_ids=[[]],
-            pdf_path="test.pdf",
-            jsonl_file=self.jsonl_path,
-            test_ids=test_ids
+            pdf_path=["test.pdf"],
+            jsonl_file=[self.jsonl_path],
+            test_ids=test_ids_list
         )
         
         self.assertEqual(len(rewards), 1)
-        self.assertEqual(rewards[0], 0.1)  # Default reward when no tests found
+        self.assertIsNone(rewards[0])  # Should return None when no tests found
     
     def test_invalid_completion(self):
         """Test handling of invalid completions."""
         completions = [None, "", "Valid content with Hello World"]
-        test_ids = ["test1"]
+        test_ids_list = [["test1"]] * 3
         
-        rewards = unit_test_reward(
+        rewards = olmocr_bench_reward(
             prompts=["prompt"] * 3,
             completions=completions,
             completion_ids=[[]] * 3,
-            pdf_path="test.pdf",
-            jsonl_file=self.jsonl_path,
-            test_ids=test_ids
+            pdf_path=["test.pdf"] * 3,
+            jsonl_file=[self.jsonl_path] * 3,
+            test_ids=test_ids_list
         )
         
         self.assertEqual(len(rewards), 3)
-        # First two should get 0 or epsilon
-        self.assertLessEqual(rewards[0], 0.01)
-        self.assertLessEqual(rewards[1], 0.01)
+        # First should be None (invalid completion)
+        self.assertIsNone(rewards[0])
+        # Second should fail the test (empty string doesn't contain "Hello World")
+        self.assertEqual(rewards[1], 0.0)
         # Last should pass the test
         self.assertEqual(rewards[2], 1.0)
     
@@ -440,18 +441,18 @@ class TestUnitTestReward(unittest.TestCase):
     def test_error_handling(self):
         """Test error handling in reward function."""
         # Test with non-existent file
-        rewards = unit_test_reward(
+        rewards = olmocr_bench_reward(
             prompts=["prompt"],
             completions=["content"],
             completion_ids=[[]],
-            pdf_path="test.pdf",
-            jsonl_file="/nonexistent/file.jsonl",
-            test_ids=["test1"]
+            pdf_path=["test.pdf"],
+            jsonl_file=["/nonexistent/file.jsonl"],
+            test_ids=[["test1"]]
         )
         
-        # Should return default reward on error
+        # Should return None on error
         self.assertEqual(len(rewards), 1)
-        self.assertEqual(rewards[0], 0.1)
+        self.assertIsNone(rewards[0])
 
 
 class TestIntegrationWithRealData(unittest.TestCase):
@@ -465,7 +466,7 @@ class TestIntegrationWithRealData(unittest.TestCase):
         """Test with real bench data if available."""
         bench_data_folder = "/home/ubuntu/olmocr/olmOCR-bench/bench_data"
         
-        dataset = OlmOCRDataset(
+        dataset = OlmOCRBenchDataset(
             bench_data_folder=bench_data_folder,
             processor=None,
             max_samples=5,

@@ -40,7 +40,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-class OlmOCRDataset(Dataset):
+class OlmOCRBenchDataset(Dataset):
     """Dataset for loading PDF pages from Olmocr-bench format JSONL files."""
     
     def __init__(
@@ -187,7 +187,7 @@ def load_tests_cached(jsonl_file: str):
     return load_tests(jsonl_file)
 
 
-def unit_test_reward(prompts, completions, completion_ids, pdf_path, jsonl_file, test_ids, **kwargs):
+def olmocr_bench_reward(prompts, completions: list[str], completion_ids: list[list[int]], pdf_path: list[str], jsonl_file: list[str], test_ids: list[list[str]], **kwargs):
     """
     Reward function that runs unit tests on completions and returns average pass rate.
     
@@ -198,38 +198,49 @@ def unit_test_reward(prompts, completions, completion_ids, pdf_path, jsonl_file,
         prompts: List of prompts
         completions: List of generated completions (model outputs)
         completion_ids: List of completion token IDs
-        pdf_path: Path to the PDF file being processed
-        jsonl_file: Path to the JSONL file containing test definitions
-        test_ids: List of test IDs associated with this PDF page
+        pdf_path: List of PDF file paths (one per completion)
+        jsonl_file: List of JSONL file paths containing test definitions (one per completion)
+        test_ids: List of test ID lists associated with each PDF page (one list per completion)
         **kwargs: Additional arguments
         
     Returns:
-        List of reward scores (0.0 to 1.0) based on test pass rates
+        List of reward scores (float) based on test pass rates, or None for errors
     """
-    logger.info(f"Running unit test reward function for {len(completions)} completions")
-    logger.info(f"PDF: {pdf_path}, JSONL: {jsonl_file}, Test IDs: {test_ids}")
+    logger.info(f"Running olmocr bench reward function for {len(completions)} completions")
     
     rewards = []
     
-    # Load all tests from the JSONL file (cached)
-    try:
-        all_tests = load_tests_cached(jsonl_file)
-        # Filter to only the tests for this specific PDF page
-        relevant_tests = [test for test in all_tests if test.id in test_ids]
+    # Process each completion with its corresponding metadata
+    for i, completion in enumerate(completions):
+        # Get the corresponding metadata for this completion
+        comp_pdf_path = pdf_path[i] if i < len(pdf_path) else None
+        comp_jsonl_file = jsonl_file[i] if i < len(jsonl_file) else None
+        comp_test_ids = test_ids[i] if i < len(test_ids) else []
         
-        if not relevant_tests:
-            logger.warning(f"No relevant tests found for test IDs: {test_ids}")
-            # Return a small positive reward to avoid training issues
-            return [0.1 for _ in completions]
+        logger.info(f"Completion {i}: PDF: {comp_pdf_path}, JSONL: {comp_jsonl_file}, Test IDs: {comp_test_ids}")
         
-        logger.info(f"Found {len(relevant_tests)} relevant tests for this PDF page")
+        if completion is None or not isinstance(completion, str):
+            logger.warning(f"Invalid completion at index {i}: {type(completion)}")
+            rewards.append(None)
+            continue
         
-        # Process each completion
-        for i, completion in enumerate(completions):
-            if completion is None or not isinstance(completion, str):
-                logger.warning(f"Invalid completion at index {i}: {type(completion)}")
-                rewards.append(0.0)
+        if comp_jsonl_file is None or comp_test_ids is None or len(comp_test_ids) == 0:
+            logger.warning(f"Missing metadata for completion {i}")
+            rewards.append(None)
+            continue
+        
+        try:
+            # Load all tests from the JSONL file (cached)
+            all_tests = load_tests_cached(comp_jsonl_file)
+            # Filter to only the tests for this specific PDF page
+            relevant_tests = [test for test in all_tests if test.id in comp_test_ids]
+            
+            if not relevant_tests:
+                logger.warning(f"No relevant tests found for test IDs: {comp_test_ids}")
+                rewards.append(None)
                 continue
+            
+            logger.info(f"Found {len(relevant_tests)} relevant tests for completion {i}")
             
             # Run all relevant tests on this completion
             passed = 0
@@ -252,19 +263,10 @@ def unit_test_reward(prompts, completions, completion_ids, pdf_path, jsonl_file,
             rewards.append(reward)
             
             logger.info(f"Completion {i}: {passed}/{total} tests passed, reward={reward:.3f}")
-    
-    except Exception as e:
-        logger.error(f"Error in unit_test_reward function: {e}")
-        # Return small positive rewards to avoid training issues
-        return [0.1 for _ in completions]
-    
-    # Ensure we always return rewards between 0 and 1
-    rewards = [max(0.0, min(1.0, r)) for r in rewards]
-    
-    # If all rewards are 0, add a small epsilon to avoid training issues
-    if all(r == 0.0 for r in rewards):
-        logger.warning("All completions failed all tests, adding small epsilon reward")
-        rewards = [0.01 for _ in rewards]
+            
+        except Exception as e:
+            logger.error(f"Error processing completion {i}: {e}")
+            rewards.append(None)
     
     return rewards
 
@@ -404,7 +406,7 @@ def main():
     
     # Create training dataset
     logger.info(f"Creating training dataset from: {args.train_bench_data_folder}")
-    train_dataset = OlmOCRDataset(
+    train_dataset = OlmOCRBenchDataset(
         bench_data_folder=args.train_bench_data_folder,
         processor=processor,
         max_samples=args.max_train_samples,
@@ -417,7 +419,7 @@ def main():
     
     # Create evaluation dataset
     logger.info(f"Creating evaluation dataset from: {args.eval_bench_data_folder}")
-    eval_dataset = OlmOCRDataset(
+    eval_dataset = OlmOCRBenchDataset(
         bench_data_folder=args.eval_bench_data_folder,
         processor=processor,
         max_samples=args.max_eval_samples,
@@ -463,7 +465,7 @@ def main():
         processing_class=processor,
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
-        reward_funcs=unit_test_reward,
+        reward_funcs=olmocr_bench_reward,
     )
     
     # Start training
