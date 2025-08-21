@@ -226,7 +226,7 @@ def unit_test_reward(prompts, completions, completion_ids, pdf_path, jsonl_file,
         
         # Process each completion
         for i, completion in enumerate(completions):
-            if not completion or not isinstance(completion, str):
+            if completion is None or not isinstance(completion, str):
                 logger.warning(f"Invalid completion at index {i}: {type(completion)}")
                 rewards.append(0.0)
                 continue
@@ -452,6 +452,7 @@ def main():
         use_vllm=True,
         vllm_mode="colocate",
         vllm_gpu_memory_utilization=0.15,
+        log_completions=True,
     )
     
     # Initialize GRPO trainer
