@@ -170,34 +170,9 @@ class OlmOCRDataset(Dataset):
             # Return None if processing fails
             return None
 
-def simple_length_reward(completions: List[str], **kwargs) -> List[float]:
-    """
-    Simple reward function that rewards completions close to 100 tokens.
-    Returns higher rewards for completions closer to the target length.
-    """
-    target_length = 100
-    rewards = []
-    
-    for completion in completions:
-        # Count tokens (simple word-based approximation)
-        tokens = completion.split()
-        length = len(tokens)
-        
-        # Calculate reward based on distance from target
-        distance = abs(length - target_length)
-        
-        # Reward function: max reward of 1.0 at target length, 
-        # decreasing as we get further away
-        if distance == 0:
-            reward = 1.0
-        else:
-            # Exponential decay based on distance
-            reward = max(0.0, 1.0 - (distance / target_length))
-        
-        rewards.append(reward)
-        
-    logger.info(f"Reward stats: mean={np.mean(rewards):.3f}, std={np.std(rewards):.3f}")
-    return rewards
+def simple_length_reward(completions_ids, **kwargs):
+    """Reward function that assigns higher scores to longer completions (in terms of token count)."""
+    return [float(len(ids)) for ids in completions_ids]
 
 
 def main():
