@@ -2,26 +2,15 @@
 
 set -e
 
-# Parse command line arguments
-MODEL_NAME="Qwen/Qwen2.5-VL-7B-Instruct"
+# Parse beaker-specific arguments
 SKIP_DOCKER_BUILD=false
 PREEMPTIBLE=false
-MAX_TRAIN_SAMPLES=""
-MAX_EVAL_SAMPLES=""
-NUM_EPOCHS=1
-LEARNING_RATE="1e-5"
-BATCH_SIZE=1
-GRAD_ACCUM_STEPS=4
-USE_WANDB=false
-WANDB_PROJECT="olmocr-grpo"
-WANDB_RUN_NAME=""
+
+# Store all arguments to pass to python command
+PYTHON_ARGS=()
 
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --model)
-            MODEL_NAME="$2"
-            shift 2
-            ;;
         --skip-docker-build)
             SKIP_DOCKER_BUILD=true
             shift
@@ -30,66 +19,28 @@ while [[ $# -gt 0 ]]; do
             PREEMPTIBLE=true
             shift
             ;;
-        --max-train-samples)
-            MAX_TRAIN_SAMPLES="$2"
-            shift 2
-            ;;
-        --max-eval-samples)
-            MAX_EVAL_SAMPLES="$2"
-            shift 2
-            ;;
-        --num-epochs)
-            NUM_EPOCHS="$2"
-            shift 2
-            ;;
-        --learning-rate)
-            LEARNING_RATE="$2"
-            shift 2
-            ;;
-        --batch-size)
-            BATCH_SIZE="$2"
-            shift 2
-            ;;
-        --grad-accum-steps)
-            GRAD_ACCUM_STEPS="$2"
-            shift 2
-            ;;
-        --use-wandb)
-            USE_WANDB=true
-            shift
-            ;;
-        --wandb-project)
-            WANDB_PROJECT="$2"
-            shift 2
-            ;;
-        --wandb-run-name)
-            WANDB_RUN_NAME="$2"
-            shift 2
-            ;;
-        *)
-            echo "Unknown option: $1"
-            echo "Usage: $0 [options]"
-            echo "Options:"
-            echo "  --model MODEL_NAME             Model to use (default: Qwen/Qwen2.5-VL-7B-Instruct)"
+        --help|-h)
+            echo "Usage: $0 [beaker-options] [grpo-training-options]"
+            echo ""
+            echo "Beaker-specific options:"
             echo "  --skip-docker-build            Skip Docker build"
             echo "  --preemptible                  Use preemptible instances"
-            echo "  --max-train-samples N          Max training samples"
-            echo "  --max-eval-samples N           Max evaluation samples"
-            echo "  --num-epochs N                 Number of training epochs (default: 1)"
-            echo "  --learning-rate LR             Learning rate (default: 1e-6)"
-            echo "  --batch-size N                 Batch size per device (default: 1)"
-            echo "  --grad-accum-steps N           Gradient accumulation steps (default: 4)"
-            echo "  --use-wandb                    Enable W&B logging"
-            echo "  --wandb-project NAME           W&B project name"
-            echo "  --wandb-run-name NAME          W&B run name"
-            exit 1
+            echo ""
+            echo "All other arguments are forwarded to python -m olmocr.train.grpo_train"
+            echo "Run 'python -m olmocr.train.grpo_train --help' to see available training options"
+            exit 0
+            ;;
+        *)
+            # Store all other arguments to pass to python command
+            PYTHON_ARGS+=("$1")
+            shift
             ;;
     esac
 done
 
-echo "Model: $MODEL_NAME"
 echo "Preemptible: $PREEMPTIBLE"
-echo "Use W&B: $USE_WANDB"
+echo "Skip Docker Build: $SKIP_DOCKER_BUILD"
+echo "Arguments to forward: ${PYTHON_ARGS[@]}"
 
 # Use conda environment Python if available, otherwise use system Python
 if [ -n "$CONDA_PREFIX" ]; then
@@ -137,6 +88,7 @@ echo "Beaker user: $BEAKER_USER"
 # Create Python script to run beaker experiment
 cat << 'EOF' > /tmp/run_grpo_experiment.py
 import sys
+import shlex
 from beaker import Beaker, ExperimentSpec, TaskSpec, TaskContext, ResultSpec, TaskResources, ImageSource, Priority, Constraints, EnvVar, DataMount
 
 # Get parameters from command line
@@ -144,17 +96,9 @@ image_tag = sys.argv[1]
 beaker_user = sys.argv[2]
 git_branch = sys.argv[3]
 git_hash = sys.argv[4]
-model_name = sys.argv[5]
-preemptible = sys.argv[6] == "true"
-max_train_samples = sys.argv[7]
-max_eval_samples = sys.argv[8]
-num_epochs = sys.argv[9]
-learning_rate = sys.argv[10]
-batch_size = sys.argv[11]
-grad_accum_steps = sys.argv[12]
-use_wandb = sys.argv[13] == "true"
-wandb_project = sys.argv[14]
-wandb_run_name = sys.argv[15]
+preemptible = sys.argv[5] == "true"
+# All remaining arguments are the python command arguments
+python_args = sys.argv[6:]
 
 # Initialize Beaker client
 b = Beaker.from_env(default_workspace="ai2/olmocr")
@@ -178,33 +122,32 @@ commands = [
     "echo 'Starting GRPO training...'",
 ]
 
-# Build the python command with all parameters
-grpo_cmd = [
-    "python -m olmocr.train.grpo_train",
-    "--train_bench_data_folder /data/olmOCR-bench/bench_data",
-    "--eval_bench_data_folder /data/olmOCR-bench/bench_data",  # Using same data for now
-    f"--model_name {model_name}",
-    "--output_dir /weka/oe-training-default/jakep/olmocr-grpo-checkpoints",
-    f"--num_train_epochs {num_epochs}",
-    f"--learning_rate {learning_rate}",
-    f"--per_device_train_batch_size {batch_size}",
-    f"--per_device_eval_batch_size {batch_size}",
-    f"--gradient_accumulation_steps {grad_accum_steps}",
-]
+# Build the python command with forwarded arguments
+# Add default paths if not provided in arguments
+grpo_cmd = ["python -m olmocr.train.grpo_train"]
 
-# Add optional parameters
-if max_train_samples:
-    grpo_cmd.append(f"--max_train_samples {max_train_samples}")
-if max_eval_samples:
-    grpo_cmd.append(f"--max_eval_samples {max_eval_samples}")
-if use_wandb:
-    grpo_cmd.append("--use_wandb")
-    grpo_cmd.append(f"--wandb_project {wandb_project}")
-    if wandb_run_name:
-        grpo_cmd.append(f"--wandb_run_name {wandb_run_name}")
+# Check if certain required arguments are in the provided args, add defaults if not
+arg_str = " ".join(python_args)
+if "--train_bench_data_folder" not in arg_str:
+    grpo_cmd.append("--train_bench_data_folder /data/olmOCR-bench/bench_data")
+if "--eval_bench_data_folder" not in arg_str:
+    grpo_cmd.append("--eval_bench_data_folder /data/olmOCR-bench/bench_data")
+if "--output_dir" not in arg_str:
+    grpo_cmd.append("--output_dir /weka/oe-training-default/jakep/olmocr-grpo-checkpoints")
+
+# Add all the forwarded arguments
+grpo_cmd.extend(python_args)
 
 # Add the GRPO command to the commands list
 commands.append(" ".join(grpo_cmd))
+
+# Extract model name from arguments if provided (for description)
+model_name = "Unknown"
+for i, arg in enumerate(python_args):
+    if arg in ["--model_name", "--model"]:
+        if i + 1 < len(python_args):
+            model_name = python_args[i + 1]
+            break
 
 # Build task spec
 task_spec = TaskSpec(
@@ -258,17 +201,8 @@ $PYTHON /tmp/run_grpo_experiment.py \
     "$BEAKER_USER" \
     "$GIT_BRANCH" \
     "$GIT_HASH" \
-    "$MODEL_NAME" \
     "$PREEMPTIBLE" \
-    "$MAX_TRAIN_SAMPLES" \
-    "$MAX_EVAL_SAMPLES" \
-    "$NUM_EPOCHS" \
-    "$LEARNING_RATE" \
-    "$BATCH_SIZE" \
-    "$GRAD_ACCUM_STEPS" \
-    "$USE_WANDB" \
-    "$WANDB_PROJECT" \
-    "$WANDB_RUN_NAME"
+    "${PYTHON_ARGS[@]}"
 
 # Clean up temporary file
 rm /tmp/run_grpo_experiment.py
