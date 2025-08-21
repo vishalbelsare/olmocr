@@ -9,7 +9,7 @@ PREEMPTIBLE=false
 MAX_TRAIN_SAMPLES=""
 MAX_EVAL_SAMPLES=""
 NUM_EPOCHS=1
-LEARNING_RATE="1e-6"
+LEARNING_RATE="1e-5"
 BATCH_SIZE=1
 GRAD_ACCUM_STEPS=4
 USE_WANDB=false
@@ -183,7 +183,7 @@ grpo_cmd = [
     "--train_bench_data_folder /data/olmOCR-bench/bench_data",
     "--eval_bench_data_folder /data/olmOCR-bench/bench_data",  # Using same data for now
     f"--model_name {model_name}",
-    "--output_dir /weka/oe-training-default/olmocr-grpo-checkpoints",
+    "--output_dir /weka/oe-training-default/jakep/olmocr-grpo-checkpoints",
     f"--num_train_epochs {num_epochs}",
     f"--learning_rate {learning_rate}",
     f"--per_device_train_batch_size {batch_size}",

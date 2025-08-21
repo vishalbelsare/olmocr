@@ -207,7 +207,7 @@ def main():
     parser.add_argument(
         "--learning_rate",
         type=float,
-        default=1e-6,
+        default=1e-5,
         help="Learning rate"
     )
     parser.add_argument(
@@ -355,6 +355,11 @@ def main():
         remove_unused_columns=False,
         bf16=True,
         dataloader_num_workers=0,
+
+        # Vllm setup to speed up generation
+        use_vllm=True,
+        vllm_mode="colocate",
+        vllm_gpu_memory_utilization=0.15,
     )
     
     # Initialize GRPO trainer
