@@ -219,7 +219,7 @@ def olmocr_bench_reward(prompts, completions: list[str] | list[list[dict]], comp
         
         logger.info(f"Completion {i}: PDF: {comp_pdf_path}, JSONL: {comp_jsonl_file}, Test IDs: {comp_test_ids}")
         
-        if completion is None or not isinstance(completion, str) or not isinstance(completion, list):
+        if completion is None or not (isinstance(completion, str) or isinstance(completion, list)):
             logger.warning(f"Invalid completion at index {i}: {type(completion)}")
             logger.warning(f"completion: {completion}")
             rewards.append(None)
