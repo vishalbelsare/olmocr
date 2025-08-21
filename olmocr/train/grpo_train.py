@@ -270,11 +270,6 @@ def main():
         help="Maximum number of evaluation samples to use (default: use all)"
     )
     parser.add_argument(
-        "--use_wandb",
-        action="store_true",
-        help="Enable Weights & Biases logging"
-    )
-    parser.add_argument(
         "--wandb_project",
         type=str,
         default="olmocr-grpo",
@@ -293,16 +288,14 @@ def main():
     os.makedirs(args.output_dir, exist_ok=True)
     
     # Initialize wandb if enabled
-    if args.use_wandb:
-        wandb.init(
-            project=args.wandb_project,
-            name=args.wandb_run_name,
-            config=vars(args)
-        )
-        logger.info(f"Initialized wandb project: {args.wandb_project}")
-        report_to = ["wandb"]
-    else:
-        report_to = None
+    wandb.init(
+        project=args.wandb_project,
+        name=args.wandb_run_name,
+        config=vars(args)
+    )
+    logger.info(f"Initialized wandb project: {args.wandb_project}")
+    report_to = ["wandb"]
+
     
     # Verify train bench_data_folder exists
     if not os.path.exists(args.train_bench_data_folder):
@@ -378,6 +371,7 @@ def main():
         save_steps=100,
         eval_steps=50,
         warmup_steps=10,
+        max_prompt_length=3000,
         max_completion_length=3000,
         temperature=0.7,
         report_to=report_to,
