@@ -406,7 +406,6 @@ def main():
         warmup_steps=10,
         max_completion_length=3000,
         temperature=0.7,
-        do_sample=True,
         report_to=report_to,
         remove_unused_columns=False,
         torch_dtype=torch.bfloat16,
