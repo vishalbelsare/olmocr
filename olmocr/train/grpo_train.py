@@ -67,7 +67,7 @@ class OlmOCRBenchDataset(Dataset):
     
     def _load_unique_pdfs_from_jsonl(self) -> List[Dict[str, Any]]:
         """Load unique PDFs from JSONL files in the bench_data folder, tracking all test cases per PDF."""
-        jsonl_files = glob.glob(os.path.join(self.bench_data_folder, "*.jsonl"))
+        jsonl_files = sorted(glob.glob(os.path.join(self.bench_data_folder, "*.jsonl")))
         
         if not jsonl_files:
             raise ValueError(f"No JSONL files found in {self.bench_data_folder}")
@@ -115,8 +115,8 @@ class OlmOCRBenchDataset(Dataset):
                         logger.warning(f"Error processing entry in {jsonl_file}: {e}")
                         continue
         
-        # Convert to list and apply max_samples limit
-        samples = list(pdf_data.values())
+        # Convert to list with sorted keys for reproducibility
+        samples = [pdf_data[key] for key in sorted(pdf_data.keys())]
         if self.max_samples:
             samples = samples[:self.max_samples]
         
@@ -341,8 +341,8 @@ def main():
     parser.add_argument(
         "--max_eval_samples",
         type=int,
-        default=None,
-        help="Maximum number of evaluation samples to use (default: use all)"
+        default=10,
+        help="Maximum number of evaluation samples to use (default: 10)"
     )
     parser.add_argument(
         "--wandb_project",
