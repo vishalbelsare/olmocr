@@ -302,7 +302,7 @@ def main():
         logger.info(f"Initialized wandb project: {args.wandb_project}")
         report_to = ["wandb"]
     else:
-        report_to = ["tensorboard"]
+        report_to = None
     
     # Verify train bench_data_folder exists
     if not os.path.exists(args.train_bench_data_folder):
