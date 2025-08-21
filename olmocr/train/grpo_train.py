@@ -11,6 +11,7 @@ import json
 import random
 from pathlib import Path
 import glob
+from functools import lru_cache
 
 import torch
 import numpy as np
@@ -28,6 +29,7 @@ from io import BytesIO
 
 from olmocr.data.renderpdf import render_pdf_to_base64png
 from olmocr.prompts import build_no_anchoring_v4_yaml_prompt
+from olmocr.bench.tests import load_tests
 
 # Configure logging
 logging.basicConfig(
@@ -170,11 +172,101 @@ class OlmOCRDataset(Dataset):
             # Return None if processing fails
             return None
 
-def simple_length_reward(prompts, completions, completion_ids, pdf_path, jsonl_file, test_ids, **kwargs):
-    """Reward function that assigns higher scores to longer completions (in terms of token count)."""
-    logger.info(f"Reward function called {kwargs}")
-    # return [float(len(ids)) for ids in completions_ids]
-    return [random.choice([0.1, 0.5]) for x in completions]
+@lru_cache(maxsize=128)
+def load_tests_cached(jsonl_file: str):
+    """
+    Cached version of load_tests to avoid reloading the same JSONL file multiple times.
+    
+    Args:
+        jsonl_file: Path to the JSONL file containing test definitions
+        
+    Returns:
+        List of test objects loaded from the file
+    """
+    logger.info(f"Loading tests from {jsonl_file} (will be cached)")
+    return load_tests(jsonl_file)
+
+
+def unit_test_reward(prompts, completions, completion_ids, pdf_path, jsonl_file, test_ids, **kwargs):
+    """
+    Reward function that runs unit tests on completions and returns average pass rate.
+    
+    For each completion, loads the corresponding tests from the JSONL file and runs them.
+    Returns the proportion of tests that pass as the reward score.
+    
+    Args:
+        prompts: List of prompts
+        completions: List of generated completions (model outputs)
+        completion_ids: List of completion token IDs
+        pdf_path: Path to the PDF file being processed
+        jsonl_file: Path to the JSONL file containing test definitions
+        test_ids: List of test IDs associated with this PDF page
+        **kwargs: Additional arguments
+        
+    Returns:
+        List of reward scores (0.0 to 1.0) based on test pass rates
+    """
+    logger.info(f"Running unit test reward function for {len(completions)} completions")
+    logger.info(f"PDF: {pdf_path}, JSONL: {jsonl_file}, Test IDs: {test_ids}")
+    
+    rewards = []
+    
+    # Load all tests from the JSONL file (cached)
+    try:
+        all_tests = load_tests_cached(jsonl_file)
+        # Filter to only the tests for this specific PDF page
+        relevant_tests = [test for test in all_tests if test.id in test_ids]
+        
+        if not relevant_tests:
+            logger.warning(f"No relevant tests found for test IDs: {test_ids}")
+            # Return a small positive reward to avoid training issues
+            return [0.1 for _ in completions]
+        
+        logger.info(f"Found {len(relevant_tests)} relevant tests for this PDF page")
+        
+        # Process each completion
+        for i, completion in enumerate(completions):
+            if not completion or not isinstance(completion, str):
+                logger.warning(f"Invalid completion at index {i}: {type(completion)}")
+                rewards.append(0.0)
+                continue
+            
+            # Run all relevant tests on this completion
+            passed = 0
+            total = len(relevant_tests)
+            
+            for test in relevant_tests:
+                try:
+                    test_passed, failure_reason = test.run(completion)
+                    if test_passed:
+                        passed += 1
+                    else:
+                        logger.debug(f"Test {test.id} failed: {failure_reason}")
+                except Exception as e:
+                    logger.warning(f"Error running test {test.id}: {e}")
+                    # Count errored tests as failures
+                    continue
+            
+            # Calculate reward as proportion of tests passed
+            reward = passed / total if total > 0 else 0.0
+            rewards.append(reward)
+            
+            logger.info(f"Completion {i}: {passed}/{total} tests passed, reward={reward:.3f}")
+    
+    except Exception as e:
+        logger.error(f"Error in unit_test_reward function: {e}")
+        # Return small positive rewards to avoid training issues
+        return [0.1 for _ in completions]
+    
+    # Ensure we always return rewards between 0 and 1
+    rewards = [max(0.0, min(1.0, r)) for r in rewards]
+    
+    # If all rewards are 0, add a small epsilon to avoid training issues
+    if all(r == 0.0 for r in rewards):
+        logger.warning("All completions failed all tests, adding small epsilon reward")
+        rewards = [0.01 for _ in rewards]
+    
+    return rewards
 
 
 def main():
@@ -370,7 +462,7 @@ def main():
         processing_class=processor,
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
-        reward_funcs=simple_length_reward,
+        reward_funcs=unit_test_reward,
     )
     
     # Start training
