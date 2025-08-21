@@ -280,7 +280,7 @@ def main():
     parser.add_argument(
         "--gradient_accumulation_steps",
         type=int,
-        default=4,
+        default=8,
         help="Gradient accumulation steps"
     )
     parser.add_argument(
