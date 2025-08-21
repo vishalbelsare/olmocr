@@ -221,6 +221,7 @@ def olmocr_bench_reward(prompts, completions: list[str], completion_ids: list[li
         
         if completion is None or not isinstance(completion, str):
             logger.warning(f"Invalid completion at index {i}: {type(completion)}")
+            logger.warning(f"completion: {completion}")
             rewards.append(None)
             continue
         
