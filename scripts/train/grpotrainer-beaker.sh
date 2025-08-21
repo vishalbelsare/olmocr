@@ -180,8 +180,8 @@ commands = [
 # Build the python command with all parameters
 grpo_cmd = [
     "python -m olmocr.train.grpo_train",
-    "--train_bench_data_folder /data/olmOCR-bench",
-    "--eval_bench_data_folder /data/olmOCR-bench",  # Using same data for now
+    "--train_bench_data_folder /data/olmOCR-bench/bench_data",
+    "--eval_bench_data_folder /data/olmOCR-bench/bench_data",  # Using same data for now
     f"--model_name {model_name}",
     "--output_dir /weka/oe-training-default/olmocr-grpo-checkpoints",
     f"--num_train_epochs {num_epochs}",

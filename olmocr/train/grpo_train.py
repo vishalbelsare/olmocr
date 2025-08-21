@@ -404,7 +404,7 @@ def main():
         save_steps=100,
         eval_steps=50,
         warmup_steps=10,
-        max_new_tokens=3000,
+        max_completion_length=3000,
         temperature=0.7,
         do_sample=True,
         report_to=report_to,
