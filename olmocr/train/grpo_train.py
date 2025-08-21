@@ -170,10 +170,11 @@ class OlmOCRDataset(Dataset):
             # Return None if processing fails
             return None
 
-def simple_length_reward(completions_ids, **kwargs):
+def simple_length_reward(**kwargs):
     """Reward function that assigns higher scores to longer completions (in terms of token count)."""
     logger.info(f"Reward function called {kwargs}")
-    return [float(len(ids)) for ids in completions_ids]
+    # return [float(len(ids)) for ids in completions_ids]
+    return random.choice([0.1, 0.5])
 
 
 def main():
