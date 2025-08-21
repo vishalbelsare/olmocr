@@ -408,9 +408,7 @@ def main():
         temperature=0.7,
         report_to=report_to,
         remove_unused_columns=False,
-        torch_dtype=torch.bfloat16,
         bf16=True,
-        gradient_checkpointing=True,
         dataloader_num_workers=0,
     )
     
