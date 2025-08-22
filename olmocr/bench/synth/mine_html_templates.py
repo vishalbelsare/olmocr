@@ -137,8 +137,10 @@ def html_to_markdown_with_frontmatter(html_content):
     
     # Handle image placeholders - replace div.image with actual img tags for proper markdown conversion
     for img_div in soup.find_all('div', class_='image'):
-        # Create an img tag with placeholder src
-        img_tag = soup.new_tag('img', src='page.png', alt='Image Placeholder')
+        # Get the data-description attribute if available, otherwise use default
+        alt_text = img_div.get('data-description', 'Image Placeholder')
+        # Create an img tag with placeholder src and appropriate alt text
+        img_tag = soup.new_tag('img', src='page.png', alt=alt_text)
         img_div.replace_with(img_tag)
     
     # Get the modified HTML
@@ -259,7 +261,7 @@ def generate_html_from_image(client, image_base64):
                             "Important requirements:\n"
                             "1. Use appropriate HTML tags for elements like headings, paragraphs, lists, tables, etc.\n"
                             "2. Use the <header> and <footer> tags to represent content at the top/bottom which would not normally be part of the main content, such as page numbers, etc.\n"
-                            "3. Use a placeholder <div> tag with class 'image' which will render as a grey box with black outline to make sure images have their original size, shape, and position on the page.\n"
+                            "3. Use a placeholder <div> tag with class 'image' which will render as a grey box with black outline to make sure images have their original size, shape, and position on the page. Include an alt-text of the original image as a 'data-description' attribute on the tag.\n"
                             "4. Render any math equations and Latex inline using either \\[ \\] or \\( \\) delimeters.\n"
                             "5. CRITICAL: If the document has a multi-column layout, you MUST preserve the exact same number of columns in your HTML. Use CSS flexbox or grid to create the columns.\n"
                             "6. Focus on creating valid, accessible HTML that preserves the appearance and formatting of the original page as closely as possible.\n"
