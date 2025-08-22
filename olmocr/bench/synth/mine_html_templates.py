@@ -766,31 +766,46 @@ def generate_tests_from_html(html_content: str, pdf_id: str, page_num: int, verb
             if len(tests) > 25:
                 break
 
-    # Step 3: Generate TextPresenceTests for main body content
-    # Make a copy of the soup for the main content
-    main_soup = BeautifulSoup(str(soup), "html.parser")
-
-    # Remove headers, footers, and tables from the main_soup
-    for element in main_soup.find_all(["header", "footer", "table", "head"]):
-        element.extract()
-
-    # Convert superscripts and subscripts in the main soup
-    convert_superscripts_subscripts(main_soup)
-
-    full_text = main_soup.get_text().strip()
-
+    # Step 3: Generate TextPresenceTests and OrderingTests from markdown content
+    # Convert HTML to markdown to get cleaner text for presence and ordering tests
+    markdown_content = html_to_markdown_with_frontmatter(html_content)
+    
+    # Extract just the content part (after frontmatter)
+    markdown_lines = markdown_content.split('\n')
+    content_start_idx = 0
+    
+    # Skip frontmatter if present
+    if markdown_lines[0] == '---':
+        for idx, line in enumerate(markdown_lines[1:], 1):
+            if line == '---':
+                content_start_idx = idx + 1
+                break
+    
+    # Get markdown content without frontmatter
+    markdown_text = '\n'.join(markdown_lines[content_start_idx:]).strip()
+    
+    # Parse sentences from markdown content
     sentences = []
-    for paragraph in process(full_text):
-        for sentence in paragraph:
-            # Convert token sequence to string and clean it
-            sentence_str = ""
-            for token in sentence:
-                sentence_str += token.spacing + token.value
+    if markdown_text:
+        for paragraph in process(markdown_text):
+            for sentence in paragraph:
+                # Convert token sequence to string and clean it
+                sentence_str = ""
+                for token in sentence:
+                    sentence_str += token.spacing + token.value
 
-            sentence_str = sentence_str.strip()
+                sentence_str = sentence_str.strip()
 
-            if sentence_str:
-                sentences.append(sentence_str)
+                if sentence_str:
+                    # Skip HTML table content that might still be in markdown
+                    if not sentence_str.startswith('<') and not sentence_str.endswith('>'):
+                        # Remove leading # marks (markdown headers)
+                        while sentence_str.startswith('#'):
+                            sentence_str = sentence_str[1:]
+                        sentence_str = sentence_str.strip()
+                        
+                        if sentence_str:  # Only add if there's still content after removing #
+                            sentences.append(sentence_str)
 
     # Add a few random ordering tests
     all_indexes = list(range(len(sentences)))
@@ -882,9 +897,9 @@ def generate_tests_from_html(html_content: str, pdf_id: str, page_num: int, verb
 
     # Final test filtering out stage
 
-    # Now double check that the absent tests don't find any matches in the full_text
+    # Now double check that the absent tests don't find any matches in the markdown_text
     # If they do, filter them out
-    tests = [t for t in tests if t["type"] != "absent" or t["text"] not in full_text]
+    tests = [t for t in tests if t["type"] != "absent" or t["text"] not in markdown_text]
 
     # Remove any tests where text-based fields have no alphanumeric characters, contain LaTeX, or contain Unicode super/subscripts
     text_fields = ["text", "cell", "before", "after", "up", "down", "left", "right", "top_heading", "left_heading"]
