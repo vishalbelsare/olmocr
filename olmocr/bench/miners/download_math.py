@@ -56,7 +56,7 @@ def download_and_extract_source(paper_id, data_dir):
 
 
 def download_pdf(paper_id, data_dir):
-    pdf_url = f"https://arxiv.org/pdf/{paper_id}.pdf"
+    pdf_url = f"https://export.arxiv.org/pdf/{paper_id}.pdf"
     print(f"Downloading PDF for {paper_id} from {pdf_url}...")
     response = requests.get(pdf_url)
     if response.status_code != 200:
@@ -105,7 +105,7 @@ def main():
             if os.path.exists(tex_path):
                 os.remove(tex_path)
                 print(f"Removed tex file for {paper_id} because PDF download failed.")
-        time.sleep(1)
+        time.sleep(3)
 
 
 if __name__ == "__main__":

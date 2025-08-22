@@ -800,12 +800,22 @@ def generate_tests_from_html(html_content: str, pdf_id: str, page_num: int, verb
                 if sentence_str:
                     # Skip HTML table content that might still be in markdown
                     if not sentence_str.startswith('<') and not sentence_str.endswith('>'):
+                        # Skip image placeholders - match any markdown image syntax ![...](...)
+                        if re.search(r'!\[.*?\]\(.*?\)', sentence_str):
+                            continue
+                        
                         # Remove leading # marks (markdown headers)
                         while sentence_str.startswith('#'):
                             sentence_str = sentence_str[1:]
                         sentence_str = sentence_str.strip()
                         
-                        if sentence_str:  # Only add if there's still content after removing #
+                        # Remove leading "- " for unordered lists
+                        if sentence_str.startswith('- '):
+                            sentence_str = sentence_str[2:]
+                        
+                        sentence_str = sentence_str.strip()
+                        
+                        if sentence_str:  # Only add if there's still content after cleaning
                             sentences.append(sentence_str)
 
     # Add a few random ordering tests
@@ -1108,7 +1118,13 @@ def process_pdf(pdf_info, args, client, pdf_filter=None):
                 png_width, png_height = get_png_dimensions_from_base64(image_base64)
 
                 # Run the async function in the synchronous context
-                render_success = asyncio.run(render_pdf_with_playwright(html_content, playwright_pdf_path, png_width, png_height))
+                # Create a new event loop to avoid conflicts
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    render_success = loop.run_until_complete(render_pdf_with_playwright(html_content, playwright_pdf_path, png_width, png_height))
+                finally:
+                    loop.close()
 
                 if render_success:
                     print(f"Successfully rendered with Playwright: {playwright_pdf_path}")
