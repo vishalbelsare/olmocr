@@ -1,5 +1,5 @@
 import unittest
-from olmocr.bench.synth.mine_html_templates import extract_html_metadata
+from olmocr.bench.synth.mine_html_templates import extract_html_metadata, html_to_markdown_with_frontmatter
 
 
 class TestExtractHtmlMetadata(unittest.TestCase):
@@ -389,6 +389,173 @@ class TestExtractHtmlMetadata(unittest.TestCase):
         self.assertFalse(metadata['is_diagram'])
         self.assertTrue(metadata['is_rotation_valid'])
         self.assertEqual(metadata['rotation_correction'], 0)
+
+
+class TestHtmlToMarkdown(unittest.TestCase):
+    def test_title_tag_excluded_from_markdown(self):
+        """Test that title tags from head are not included in markdown output."""
+        html_content = """
+        <html lang="en">
+        <head>
+            <title>This Should Not Appear In Markdown</title>
+            <meta charset="UTF-8">
+        </head>
+        <body>
+            <h1>Main Heading</h1>
+            <p>This is the body content that should appear.</p>
+        </body>
+        </html>
+        """
+        
+        markdown_with_frontmatter = html_to_markdown_with_frontmatter(html_content)
+        
+        # Check that the title from head tag is NOT in the markdown
+        self.assertNotIn("This Should Not Appear In Markdown", markdown_with_frontmatter)
+        
+        # Check that body content IS in the markdown
+        self.assertIn("Main Heading", markdown_with_frontmatter)
+        self.assertIn("This is the body content that should appear", markdown_with_frontmatter)
+        
+        # Check that frontmatter is present
+        self.assertTrue(markdown_with_frontmatter.startswith("---"))
+    
+    def test_image_with_data_description(self):
+        """Test that images are converted with placeholder alt text."""
+        html_content = """
+        <html lang="en">
+        <body>
+            <p>Text before image</p>
+            <div class="image" data-description="A beautiful sunset over mountains">Placeholder</div>
+            <p>Text after image</p>
+        </body>
+        </html>
+        """
+        
+        markdown_with_frontmatter = html_to_markdown_with_frontmatter(html_content)
+        
+        # Check that images use the fixed placeholder alt text
+        self.assertIn("![Image Placeholder]", markdown_with_frontmatter)
+        
+        # Check that other content is preserved
+        self.assertIn("Text before image", markdown_with_frontmatter)
+        self.assertIn("Text after image", markdown_with_frontmatter)
+    
+    def test_image_without_data_description(self):
+        """Test that images without data-description use default alt text."""
+        html_content = """
+        <html lang="en">
+        <body>
+            <div class="image">Some placeholder content</div>
+        </body>
+        </html>
+        """
+        
+        markdown_with_frontmatter = html_to_markdown_with_frontmatter(html_content)
+        
+        # Check that default alt text is used
+        self.assertIn("![Image Placeholder]", markdown_with_frontmatter)
+    
+    def test_headers_footers_excluded(self):
+        """Test that header and footer tags are excluded from markdown."""
+        html_content = """
+        <html lang="en">
+        <body>
+            <header>
+                <nav>Navigation menu that should not appear</nav>
+            </header>
+            <main>
+                <h1>Main Content</h1>
+                <p>This should appear in the markdown.</p>
+            </main>
+            <footer>
+                <p>Footer text that should not appear</p>
+            </footer>
+        </body>
+        </html>
+        """
+        
+        markdown_with_frontmatter = html_to_markdown_with_frontmatter(html_content)
+        
+        # Check that header/footer content is excluded
+        self.assertNotIn("Navigation menu", markdown_with_frontmatter)
+        self.assertNotIn("Footer text", markdown_with_frontmatter)
+        
+        # Check that main content is included
+        self.assertIn("Main Content", markdown_with_frontmatter)
+        self.assertIn("This should appear in the markdown", markdown_with_frontmatter)
+    
+    def test_no_body_tag_fallback(self):
+        """Test that content is still processed when there's no body tag."""
+        html_content = """
+        <div>
+            <h1>Content without body tag</h1>
+            <p>This should still be converted.</p>
+        </div>
+        """
+        
+        markdown_with_frontmatter = html_to_markdown_with_frontmatter(html_content)
+        
+        # Check that content is still converted
+        self.assertIn("Content without body tag", markdown_with_frontmatter)
+        self.assertIn("This should still be converted", markdown_with_frontmatter)
+    
+    def test_removes_triple_dashes_from_content(self):
+        """Test that --- at the start or end of markdown content is removed."""
+        # Test with --- at the beginning
+        html_content_start = """
+        <html lang="en">
+        <body>
+            <p>---</p>
+            <p>Regular content here</p>
+        </body>
+        </html>
+        """
+        
+        markdown_start = html_to_markdown_with_frontmatter(html_content_start)
+        lines = markdown_start.split('\n')
+        
+        # Check that we have FrontMatter
+        self.assertEqual(lines[0], '---')
+        # Check that the content doesn't start with --- after the FrontMatter ends
+        frontmatter_end = next(i for i in range(1, len(lines)) if lines[i] == '---')
+        content_after_frontmatter = '\n'.join(lines[frontmatter_end + 1:])
+        self.assertFalse(content_after_frontmatter.strip().startswith('---'))
+        
+        # Test with --- at the end
+        html_content_end = """
+        <html lang="en">
+        <body>
+            <p>Regular content here</p>
+            <p>---</p>
+        </body>
+        </html>
+        """
+        
+        markdown_end = html_to_markdown_with_frontmatter(html_content_end)
+        # Check that content doesn't end with ---
+        self.assertFalse(markdown_end.rstrip().endswith('---\n---'))
+        
+        # Test with --- at both beginning and end
+        html_content_both = """
+        <html lang="en">
+        <body>
+            <p>---</p>
+            <p>Middle content</p>
+            <p>---</p>
+        </body>
+        </html>
+        """
+        
+        markdown_both = html_to_markdown_with_frontmatter(html_content_both)
+        lines_both = markdown_both.split('\n')
+        frontmatter_end_both = next(i for i in range(1, len(lines_both)) if lines_both[i] == '---')
+        content_both = '\n'.join(lines_both[frontmatter_end_both + 1:])
+        
+        # Content should not start or end with ---
+        self.assertFalse(content_both.strip().startswith('---'))
+        self.assertFalse(content_both.strip().endswith('---'))
+        # But should contain "Middle content"
+        self.assertIn("Middle content", content_both)
 
 
 if __name__ == '__main__':

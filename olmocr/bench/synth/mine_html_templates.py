@@ -120,31 +120,38 @@ def html_to_markdown_with_frontmatter(html_content):
     # Extract metadata
     metadata = extract_html_metadata(html_content)
     
-    # Convert to markdown
+    # Parse HTML and extract only body content for markdown conversion
     soup = BeautifulSoup(html_content, 'html.parser')
+    body = soup.find('body')
     
-    # First, remove all header and footer elements from the soup
-    for header in soup.find_all('header'):
+    # If no body tag, use the whole soup as fallback
+    if body:
+        # Create a new soup with just the body content
+        body_soup = BeautifulSoup(str(body), 'html.parser')
+    else:
+        body_soup = soup
+    
+    # First, remove all header and footer elements from the body
+    for header in body_soup.find_all('header'):
         header.decompose()
-    for footer in soup.find_all('footer'):
+    for footer in body_soup.find_all('footer'):
         footer.decompose()
     
     # Also remove divs with page-header or page-footer classes (in case they weren't converted to header/footer tags)
-    for div in soup.find_all('div', class_='page-header'):
+    for div in body_soup.find_all('div', class_='page-header'):
         div.decompose()
-    for div in soup.find_all('div', class_='page-footer'):
+    for div in body_soup.find_all('div', class_='page-footer'):
         div.decompose()
     
     # Handle image placeholders - replace div.image with actual img tags for proper markdown conversion
-    for img_div in soup.find_all('div', class_='image'):
-        # Get the data-description attribute if available, otherwise use default
-        alt_text = img_div.get('data-description', 'Image Placeholder')
+    for img_div in body_soup.find_all('div', class_='image'):
+        alt_text = "Image Placeholder" # For now, in the render it's all just a placeholder
         # Create an img tag with placeholder src and appropriate alt text
-        img_tag = soup.new_tag('img', src='page.png', alt=alt_text)
+        img_tag = body_soup.new_tag('img', src='page.png', alt=alt_text)
         img_div.replace_with(img_tag)
     
-    # Get the modified HTML
-    modified_html = str(soup)
+    # Get the modified HTML (only body content)
+    modified_html = str(body_soup)
     
     # Create custom converter instance
     converter = PreserveTablesConverter(
@@ -164,6 +171,15 @@ def html_to_markdown_with_frontmatter(html_content):
     while '\n\n\n' in markdown:
         markdown = markdown.replace('\n\n\n', '\n\n')
     
+    # Strip and clean up markdown content
+    markdown_content = markdown.strip()
+    
+    # Remove leading or trailing --- if present
+    while markdown_content.startswith('---'):
+        markdown_content = markdown_content[3:].strip()
+    while markdown_content.endswith('---'):
+        markdown_content = markdown_content[:-3].strip()
+    
     # Create FrontMatter
     frontmatter = f"""---
 primary_language: {metadata['primary_language']}
@@ -174,7 +190,6 @@ is_diagram: {metadata['is_diagram']}
 ---"""
     
     # Combine FrontMatter with markdown content
-    markdown_content = markdown.strip()
     if markdown_content:
         return f"{frontmatter}\n{markdown_content}"
     else:
@@ -261,7 +276,7 @@ def generate_html_from_image(client, image_base64):
                             "Important requirements:\n"
                             "1. Use appropriate HTML tags for elements like headings, paragraphs, lists, tables, etc.\n"
                             "2. Use the <header> and <footer> tags to represent content at the top/bottom which would not normally be part of the main content, such as page numbers, etc.\n"
-                            "3. Use a placeholder <div> tag with class 'image' which will render as a grey box with black outline to make sure images have their original size, shape, and position on the page. Include an alt-text of the original image as a 'data-description' attribute on the tag.\n"
+                            "3. Use a placeholder <div> tag with class 'image' which will render as a grey box with black outline to make sure images have their original size, shape, and position on the page. Include an alt-text of the original image as a 'data-description' attribute on the tag. Include 'data-x', 'data-y', 'data-width', 'data-height' attributes which specify where the image was found in the original document.\n"
                             "4. Render any math equations and Latex inline using either \\[ \\] or \\( \\) delimeters.\n"
                             "5. CRITICAL: If the document has a multi-column layout, you MUST preserve the exact same number of columns in your HTML. Use CSS flexbox or grid to create the columns.\n"
                             "6. Focus on creating valid, accessible HTML that preserves the appearance and formatting of the original page as closely as possible.\n"
