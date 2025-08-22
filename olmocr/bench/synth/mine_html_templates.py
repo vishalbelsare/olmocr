@@ -845,7 +845,7 @@ def generate_tests_from_html(html_content: str, pdf_id: str, page_num: int, verb
         first_sentence = sentences[i]
         second_sentence = sentences[j]
 
-        if len(first_sentence) < 10 or len(second_sentence) < 10:
+        if len(first_sentence) < 5 or len(second_sentence) < 5:
             continue
 
         if "\n" in first_sentence:
@@ -856,7 +856,7 @@ def generate_tests_from_html(html_content: str, pdf_id: str, page_num: int, verb
         max_diffs = round(max(len(first_sentence), len(second_sentence)) * 0.02)
 
         # Too big of a length discrepancy causes issues
-        if max_diffs > len(first_sentence) // 2 or max_diffs > len(second_sentence) // 2:
+        if max_diffs > len(first_sentence) // 4 or max_diffs > len(second_sentence) // 4:
             continue
 
         tests.append(
@@ -909,8 +909,8 @@ def generate_tests_from_html(html_content: str, pdf_id: str, page_num: int, verb
             seen.add(eq)
             unique_equations.append(eq)
     
-    # Create math tests for up to 10 unique equations
-    for i, equation in enumerate(unique_equations[:10]):
+    # Create math tests for up to 50 unique equations
+    for i, equation in enumerate(unique_equations[:50]):
         tests.append(
             {
                 "pdf": pdf_filename,
@@ -996,36 +996,8 @@ def generate_tests_from_html(html_content: str, pdf_id: str, page_num: int, verb
             test_signatures.add(test_signature)
             unique_tests.append(test)
 
-    # Validate each test against the markdown content
-    validated_tests = []
-    failed_test_count = 0
     
-    # Get the markdown content for validation
-    validation_markdown = markdown_content
-    
-    for test in unique_tests:
-        try:
-            # Create test object from the dictionary
-            test_obj = load_single_test(test)
-            
-            # Run the test on the markdown content
-            passed, error_msg = test_obj.run(validation_markdown)
-            
-            if passed:
-                validated_tests.append(test)
-            else:
-                failed_test_count += 1
-                if verbose_table_testing:
-                    print(f"Test {test['id']} (type: {test['type']}) failed validation: {error_msg}")
-        except Exception as e:
-            failed_test_count += 1
-            if verbose_table_testing:
-                print(f"Test {test['id']} (type: {test['type']}) errored during validation: {str(e)}")
-    
-    if failed_test_count > 0:
-        print(f"Filtered out {failed_test_count} tests that failed validation against markdown content for {pdf_id}")
-    
-    return validated_tests
+    return unique_tests
 
 
 async def process_pdf(pdf_info, args, client, pdf_filter=None):
