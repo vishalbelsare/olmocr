@@ -46,8 +46,78 @@ class PreserveTablesConverter(MarkdownConverter):
         return str(temp_soup.table) if temp_soup.table else str(el)
 
 
-def html_to_markdown(html_content):
-    """Convert HTML to markdown using custom converter, preserving tables as HTML."""
+def extract_html_metadata(html_content):
+    """Extract metadata from HTML content for FrontMatter."""
+    soup = BeautifulSoup(html_content, 'html.parser')
+    
+    # Extract language from html tag
+    html_tag = soup.find('html')
+    language = 'en'  # default
+    if html_tag and html_tag.get('lang'):
+        language = str(html_tag.get('lang'))
+        # Convert pt-BR to pt for now
+        if len(language) == 5 and language[2] == "-":
+            language = language[:2]
+    
+    # Calculate content statistics
+    body = soup.find('body')
+    if not body:
+        body = soup
+    
+    # Get text content length (excluding tables and images)
+    text_soup = BeautifulSoup(str(body), 'html.parser')
+    # Remove tables
+    for element in text_soup.find_all('table'):
+        element.decompose()
+    # Remove images (div.image)
+    for element in text_soup.find_all('div', class_='image'):
+        element.decompose()
+    # Remove headers and footers
+    for element in text_soup.find_all(['header', 'footer']):
+        element.decompose()
+    text_content = text_soup.get_text().strip()
+    text_length = len(text_content)
+    
+    # Count table content
+    tables = body.find_all('table')
+    table_text_length = 0
+    for table in tables:
+        table_text_length += len(table.get_text().strip())
+    
+    # Count images (div.image elements)
+    images = body.find_all('div', class_='image')
+    # Rough estimate: each image takes up about 500 characters worth of "space"
+    image_content_estimate = len(images) * 500
+    
+    # Calculate total content "length"
+    total_content_length = text_length + table_text_length + image_content_estimate
+    
+    # Determine if mostly tables or images
+    is_table = False
+    is_diagram = False
+    
+    if total_content_length > 0:
+        table_ratio = table_text_length / total_content_length
+        image_ratio = image_content_estimate / total_content_length
+        
+        is_table = table_ratio > 0.5
+        is_diagram = image_ratio > 0.5
+    
+    return {
+        'primary_language': language,
+        'is_rotation_valid': True,
+        'rotation_correction': 0,
+        'is_table': is_table,
+        'is_diagram': is_diagram
+    }
+
+
+def html_to_markdown_with_frontmatter(html_content):
+    """Convert HTML to markdown with FrontMatter metadata."""
+    # Extract metadata
+    metadata = extract_html_metadata(html_content)
+    
+    # Convert to markdown
     soup = BeautifulSoup(html_content, 'html.parser')
     
     # First, remove all header and footer elements from the soup
@@ -89,7 +159,21 @@ def html_to_markdown(html_content):
     while '\n\n\n' in markdown:
         markdown = markdown.replace('\n\n\n', '\n\n')
     
-    return markdown.strip()
+    # Create FrontMatter
+    frontmatter = f"""---
+primary_language: {metadata['primary_language']}
+is_rotation_valid: {metadata['is_rotation_valid']}
+rotation_correction: {metadata['rotation_correction']}
+is_table: {metadata['is_table']}
+is_diagram: {metadata['is_diagram']}
+---"""
+    
+    # Combine FrontMatter with markdown content
+    markdown_content = markdown.strip()
+    if markdown_content:
+        return f"{frontmatter}\n{markdown_content}"
+    else:
+        return frontmatter
 
 
 def extract_code_block(initial_response):
@@ -902,8 +986,8 @@ def process_pdf(pdf_info, args, client, pdf_filter=None):
         pdfs_dir = os.path.join(args.output_dir, "pdfs")
         training_dir = os.path.join(args.output_dir, "training")
         bench_data_dir = os.path.join(args.output_dir, "bench_data")
-        bench_synthetic_dir = os.path.join(bench_data_dir, "pdfs", "synthetic")
-        claude_original_dir = os.path.join(bench_data_dir, "claude_original", "synthetic")
+        bench_synthetic_dir = os.path.join(bench_data_dir, "pdfs", args.name)
+        claude_original_dir = os.path.join(bench_data_dir, "claude_original", args.name)
         os.makedirs(html_dir, exist_ok=True)
         os.makedirs(pdfs_dir, exist_ok=True)
         os.makedirs(training_dir, exist_ok=True)
@@ -916,8 +1000,8 @@ def process_pdf(pdf_info, args, client, pdf_filter=None):
         with open(html_path, "w") as f:
             f.write(html_content)
         
-        # Convert HTML to markdown and save
-        markdown_content = html_to_markdown(html_content)
+        # Convert HTML to markdown with FrontMatter and save
+        markdown_content = html_to_markdown_with_frontmatter(html_content)
         markdown_filename = f"{pdf_id}_page{page_num}.md"
         markdown_path = os.path.join(training_dir, markdown_filename)
         with open(markdown_path, "w") as f:
@@ -988,9 +1072,9 @@ def process_pdf(pdf_info, args, client, pdf_filter=None):
         # Use the playwright rendered PDF path for tests
         tests = generate_tests_from_html(html_content, pdf_id, page_num, verbose_table_testing)
 
-        # Update the PDF path in all tests to use the playwright rendered PDF with synthetic/ prefix
+        # Update the PDF path in all tests to use the playwright rendered PDF with the specified name prefix
         for test in tests:
-            test["pdf"] = f"synthetic/{playwright_pdf_filename}"
+            test["pdf"] = f"{args.name}/{playwright_pdf_filename}"
 
         # Log table test stats if verbose
         if verbose_table_testing:
@@ -1028,6 +1112,7 @@ def main():
     parser.add_argument("--skip_playwright", action="store_true", help="Skip Playwright PDF rendering")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose output including table test verification")
     parser.add_argument("--filter", action="store_true", help="Apply PDF filtering to remove forms, spam, and non-English content")
+    parser.add_argument("--name", default="synthetic", help="Name for the output JSONL file and subfolder (default: synthetic)")
     args = parser.parse_args()
 
     # Ensure output and temp directories exist
@@ -1075,10 +1160,10 @@ def main():
     random.shuffle(s3_paths)
     s3_paths = s3_paths[: args.max_tests]
 
-    # Initialize synthetic.jsonl in bench_data folder as a JSONL file (empty initially)
+    # Initialize the JSONL file in bench_data folder with the specified name
     bench_data_dir = os.path.join(args.output_dir, "bench_data")
     os.makedirs(bench_data_dir, exist_ok=True)
-    synthetic_json_path = os.path.join(bench_data_dir, "synthetic.jsonl")
+    synthetic_json_path = os.path.join(bench_data_dir, f"{args.name}.jsonl")
     open(synthetic_json_path, "w").close()  # Create empty file
 
     # Counter for test statistics
