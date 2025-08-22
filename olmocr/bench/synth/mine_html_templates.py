@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import concurrent.futures
 import json
+import logging
 import os
 import random
 import re
@@ -18,7 +19,7 @@ from playwright.async_api import async_playwright
 from syntok.segmenter import process
 from tqdm import tqdm
 
-from olmocr.bench.tests import TableTest, TestType, parse_html_tables
+from olmocr.bench.tests import TableTest, TestType, parse_html_tables, load_single_test
 from olmocr.data.renderpdf import (
     get_png_dimensions_from_base64,
     render_pdf_to_base64png,
@@ -969,7 +970,36 @@ def generate_tests_from_html(html_content: str, pdf_id: str, page_num: int, verb
             test_signatures.add(test_signature)
             unique_tests.append(test)
 
-    return unique_tests
+    # Validate each test against the markdown content
+    validated_tests = []
+    failed_test_count = 0
+    
+    # Get the markdown content for validation
+    validation_markdown = markdown_content
+    
+    for test in unique_tests:
+        try:
+            # Create test object from the dictionary
+            test_obj = load_single_test(test)
+            
+            # Run the test on the markdown content
+            passed, error_msg = test_obj.run(validation_markdown)
+            
+            if passed:
+                validated_tests.append(test)
+            else:
+                failed_test_count += 1
+                if verbose_table_testing:
+                    print(f"Test {test['id']} (type: {test['type']}) failed validation: {error_msg}")
+        except Exception as e:
+            failed_test_count += 1
+            if verbose_table_testing:
+                print(f"Test {test['id']} (type: {test['type']}) errored during validation: {str(e)}")
+    
+    if failed_test_count > 0:
+        print(f"Filtered out {failed_test_count} tests that failed validation against markdown content for {pdf_id}")
+    
+    return validated_tests
 
 
 def process_pdf(pdf_info, args, client, pdf_filter=None):
