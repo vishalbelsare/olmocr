@@ -1167,6 +1167,10 @@ def process_pdf(pdf_info, args, client, pdf_filter=None):
 
 
 def main():
+    # Configure logging to suppress httpx messages
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    
     parser = argparse.ArgumentParser(description="Convert PDFs to HTML templates and render with Playwright")
     parser.add_argument("--input_list", required=True, help="Path to a file containing S3 paths to PDFs")
     parser.add_argument("--output_dir", required=True, help="Directory to store extracted pages and tests")
