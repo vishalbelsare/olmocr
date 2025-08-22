@@ -64,28 +64,31 @@ def extract_html_metadata(html_content):
     if not body:
         body = soup
     
+    # First, create a version without headers and footers for all calculations
+    main_content_soup = BeautifulSoup(str(body), 'html.parser')
+    # Remove headers and footers from main content
+    for element in main_content_soup.find_all(['header', 'footer']):
+        element.decompose()
+    
     # Get text content length (excluding tables and images)
-    text_soup = BeautifulSoup(str(body), 'html.parser')
+    text_soup = BeautifulSoup(str(main_content_soup), 'html.parser')
     # Remove tables
     for element in text_soup.find_all('table'):
         element.decompose()
     # Remove images (div.image)
     for element in text_soup.find_all('div', class_='image'):
         element.decompose()
-    # Remove headers and footers
-    for element in text_soup.find_all(['header', 'footer']):
-        element.decompose()
     text_content = text_soup.get_text().strip()
     text_length = len(text_content)
     
-    # Count table content
-    tables = body.find_all('table')
+    # Count table content (from main content, excluding headers/footers)
+    tables = main_content_soup.find_all('table')
     table_text_length = 0
     for table in tables:
         table_text_length += len(table.get_text().strip())
     
-    # Count images (div.image elements)
-    images = body.find_all('div', class_='image')
+    # Count images (div.image elements) (from main content, excluding headers/footers)
+    images = main_content_soup.find_all('div', class_='image')
     # Rough estimate: each image takes up about 500 characters worth of "space"
     image_content_estimate = len(images) * 500
     
