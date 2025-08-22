@@ -875,14 +875,7 @@ def generate_tests_from_html(html_content: str, pdf_id: str, page_num: int, verb
         if num_order_tests > 5:
             break
 
-    # Step 4: Generate Math tests for LaTeX equations
-    # Get only the body content as a string to search for math patterns
-    body = soup.find('body')
-    if body:
-        body_html = str(body)
-    else:
-        # If no body tag, use the whole soup
-        body_html = str(soup)
+    # Step 4: Generate Math tests for LaTeX equations from the markdown
     
     # Define math patterns to search for
     math_patterns = [
@@ -893,7 +886,7 @@ def generate_tests_from_html(html_content: str, pdf_id: str, page_num: int, verb
     
     math_equations = []
     for pattern, flags in math_patterns:
-        matches = re.findall(pattern, body_html, flags)
+        matches = re.findall(pattern, markdown_content, flags)
         for match in matches:
             # Clean up the match - remove extra whitespace and newlines
             equation = match.strip()
