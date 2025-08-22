@@ -13,7 +13,7 @@ from typing import Dict, List
 import pypdf
 from anthropic import Anthropic
 from bs4 import BeautifulSoup
-from markdownify import MarkdownConverter
+from markdownify import MarkdownConverter, SPACES
 from playwright.async_api import async_playwright
 from syntok.segmenter import process
 from tqdm import tqdm
@@ -158,7 +158,7 @@ def html_to_markdown_with_frontmatter(html_content):
         heading_style="ATX",  # Use # style headings
         bullets="-",  # Use - for unordered lists
         strip=['a'],  # Remove links but keep text
-        newline_style="BACKSLASH",  # Use backslash for line breaks
+        newline_style=SPACES,  # Use backslash for line breaks
         code_language="",  # Don't add language to code blocks
         escape_asterisks=False,  # Don't escape asterisks
         escape_underscores=False  # Don't escape underscores
