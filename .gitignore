@@ -18,6 +18,8 @@ old_train/
 gpt4otestset_output/*
 pdfs/*
 olmOCR-bench/*
+olmOCR-bench-0825/
+olmOCR-bench-snapshot-082225/
 table_data*/
 /synth*/
 dolma_samples/*
