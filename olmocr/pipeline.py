@@ -156,7 +156,7 @@ async def apost(url, json_data, api_key=None):
     parsed_url = urlparse(url)
     host = parsed_url.hostname
     # Default to 443 for HTTPS, 80 for HTTP
-    if parsed_url.scheme == 'https':
+    if parsed_url.scheme == "https":
         port = parsed_url.port or 443
         use_ssl = True
     else:
@@ -234,9 +234,9 @@ async def apost(url, json_data, api_key=None):
 
 async def process_page(args, worker_id: int, pdf_orig_path: str, pdf_local_path: str, page_num: int) -> PageResult:
     if args.server:
-        server_url = args.server.rstrip('/')
+        server_url = args.server.rstrip("/")
         # Check if the server URL already contains '/v1/openai' (DeepInfra case)
-        if '/v1/openai' in server_url:
+        if "/v1/openai" in server_url:
             COMPLETION_URL = f"{server_url}/chat/completions"
         else:
             COMPLETION_URL = f"{server_url}/v1/chat/completions"
@@ -255,10 +255,10 @@ async def process_page(args, worker_id: int, pdf_orig_path: str, pdf_local_path:
         lookup_attempt = min(attempt, len(TEMPERATURE_BY_ATTEMPT) - 1)
         # For external servers (like DeepInfra), use the model name from args
         # For local inference, always use 'olmocr'
-        if args.server and hasattr(args, 'model'):
+        if args.server and hasattr(args, "model"):
             model_name = args.model
         else:
-            model_name = 'olmocr'
+            model_name = "olmocr"
 
         query = await build_page_query(
             pdf_local_path,
@@ -280,7 +280,7 @@ async def process_page(args, worker_id: int, pdf_orig_path: str, pdf_local_path:
 
         try:
             # Pass API key only for external servers that need authentication
-            if args.server and hasattr(args, 'api_key'):
+            if args.server and hasattr(args, "api_key"):
                 api_key = args.api_key
             else:
                 api_key = None
@@ -777,8 +777,8 @@ async def vllm_server_ready(args):
     delay_sec = 1
     if args.server:
         # Check if the server URL already contains '/v1/openai' (DeepInfra case)
-        server_url = args.server.rstrip('/')
-        if '/v1/openai' in server_url:
+        server_url = args.server.rstrip("/")
+        if "/v1/openai" in server_url:
             url = f"{server_url}/models"
         else:
             url = f"{server_url}/v1/models"
@@ -789,8 +789,8 @@ async def vllm_server_ready(args):
         try:
             # Add authentication headers if API key is provided
             headers = {}
-            if args.server and hasattr(args, 'api_key') and args.api_key:
-                headers['Authorization'] = f'Bearer {args.api_key}'
+            if args.server and hasattr(args, "api_key") and args.api_key:
+                headers["Authorization"] = f"Bearer {args.api_key}"
 
             async with httpx.AsyncClient() as session:
                 response = await session.get(url, headers=headers)
@@ -1113,8 +1113,8 @@ async def main():
     parser.add_argument("--target_longest_image_dim", type=int, help="Dimension on longest side to use for rendering the pdf pages", default=1288)
     parser.add_argument("--target_anchor_text_len", type=int, help="Maximum amount of anchor text to use (characters), not used for new models", default=-1)
     parser.add_argument("--guided_decoding", action="store_true", help="Enable guided decoding for model YAML type outputs")
-    parser.add_argument('--api_key', type=str, default=None, help='API key for authenticated remote servers (e.g., DeepInfra)')
-    
+    parser.add_argument("--api_key", type=str, default=None, help="API key for authenticated remote servers (e.g., DeepInfra)")
+
     vllm_group = parser.add_argument_group(
         "VLLM arguments", "These arguments are passed to vLLM. Any unrecognized arguments are also automatically forwarded to vLLM."
     )
