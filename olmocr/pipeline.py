@@ -253,8 +253,13 @@ async def process_page(args, worker_id: int, pdf_orig_path: str, pdf_local_path:
 
     while attempt < MAX_RETRIES:
         lookup_attempt = min(attempt, len(TEMPERATURE_BY_ATTEMPT) - 1)
-        # Use the model name from args if provided, otherwise default to 'olmocr'
-        model_name = getattr(args, 'model', 'olmocr') if args.server else 'olmocr'
+        # For external servers (like DeepInfra), use the model name from args
+        # For local inference, always use 'olmocr'
+        if args.server and hasattr(args, 'model'):
+            model_name = args.model
+        else:
+            model_name = 'olmocr'
+
         query = await build_page_query(
             pdf_local_path,
             page_num,
@@ -274,8 +279,11 @@ async def process_page(args, worker_id: int, pdf_orig_path: str, pdf_local_path:
         logger.debug(f"Built page query for {pdf_orig_path}-{page_num}")
 
         try:
-            # Pass API key if provided
-            api_key = getattr(args, 'api_key', None)
+            # Pass API key only for external servers that need authentication
+            if args.server and hasattr(args, 'api_key'):
+                api_key = args.api_key
+            else:
+                api_key = None
             status_code, response_body = await apost(COMPLETION_URL, json_data=query, api_key=api_key)
 
             if status_code == 400:
