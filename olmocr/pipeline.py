@@ -174,7 +174,6 @@ async def apost(url, json_data, api_key=None):
 
         json_payload = json.dumps(json_data)
 
-        # Build request headers
         headers = [
             f"POST {path} HTTP/1.1",
             f"Host: {host}",
@@ -182,18 +181,15 @@ async def apost(url, json_data, api_key=None):
             f"Content-Length: {len(json_payload)}",
         ]
 
-        # Add Authorization header if API key is provided
         if api_key:
             headers.append(f"Authorization: Bearer {api_key}")
 
         headers.append("Connection: close")
 
-        # Construct the full request
         request = "\r\n".join(headers) + "\r\n\r\n" + json_payload
         writer.write(request.encode())
         await writer.drain()
 
-        # Read status line
         status_line = await reader.readline()
         if not status_line:
             raise ConnectionError("No response from server")
@@ -279,7 +275,7 @@ async def process_page(args, worker_id: int, pdf_orig_path: str, pdf_local_path:
         logger.debug(f"Built page query for {pdf_orig_path}-{page_num}")
 
         try:
-            # Pass API key only for external servers that need authentication
+            # Passing API key only for external servers that need authentication
             if args.server and hasattr(args, "api_key"):
                 api_key = args.api_key
             else:
@@ -787,7 +783,6 @@ async def vllm_server_ready(args):
 
     for attempt in range(1, max_attempts + 1):
         try:
-            # Add authentication headers if API key is provided
             headers = {}
             if args.server and hasattr(args, "api_key") and args.api_key:
                 headers["Authorization"] = f"Bearer {args.api_key}"
