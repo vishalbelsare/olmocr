@@ -284,6 +284,8 @@ async def process_page(args, worker_id: int, pdf_orig_path: str, pdf_local_path:
 
             if status_code == 400:
                 raise ValueError(f"Got BadRequestError from server: {response_body}, skipping this response")
+            elif status_code == 429:
+                raise ConnectionError(f"Too many requests, doing exponential backoff")
             elif status_code == 500:
                 raise ValueError(f"Got InternalServerError from server: {response_body}, skipping this response")
             elif status_code != 200:

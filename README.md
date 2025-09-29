@@ -260,12 +260,14 @@ export DEEPINFRA_API_KEY="your-api-key-here"
 python -m olmocr.pipeline ./localworkspace \
   --server https://api.deepinfra.com/v1/openai \
   --api_key $DEEPINFRA_API_KEY \
+  --pages_per_group 100 \
   --model allenai/olmOCR-7B-0725-FP8 \
   --markdown \
   --pdfs path/to/your/*.pdf
 ```
 - `--server`: DeepInfra's OpenAI-compatible endpoint: `https://api.deepinfra.com/v1/openai`
 - `--api_key`: Your DeepInfra API key
+- `--pages_per_group`: You may want a smaller number of pages per group as many external provides have lower concurrent request limits
 - `--model`: The model identifier on DeepInfra: `allenai/olmOCR-7B-0725-FP8`
 - Other arguments work the same as with local inference
 
