@@ -249,6 +249,26 @@ For example:
 ```bash
 python -m olmocr.pipeline s3://my_s3_bucket/pdfworkspaces/exampleworkspace --pdfs s3://my_s3_bucket/jakep/gnarly_pdfs/*.pdf --beaker --beaker_gpus 4
 ```
+### Using DeepInfra
+Signup at [DeepInfra](https://deepinfra.com/) and get your API key from the DeepInfra dashboard.
+Store the API key as an environment variable.
+```bash
+export DEEPINFRA_API_KEY="your-api-key-here"
+```
+#### Run olmOCR with the DeepInfra server endpoint:
+```bash
+python -m olmocr.pipeline ./localworkspace \
+  --server https://api.deepinfra.com/v1/openai \
+  --api_key $DEEPINFRA_API_KEY \
+  --model allenai/olmOCR-7B-0725-FP8 \
+  --markdown \
+  --pdfs path/to/your/*.pdf
+```
+- `--server`: DeepInfra's OpenAI-compatible endpoint: `https://api.deepinfra.com/v1/openai`
+- `--api_key`: Your DeepInfra API key
+- `--model`: The model identifier on DeepInfra: `allenai/olmOCR-7B-0725-FP8`
+- Other arguments work the same as with local inference
+
 
 ### Using Docker
 
