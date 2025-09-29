@@ -18,8 +18,6 @@ old_train/
 gpt4otestset_output/*
 pdfs/*
 olmOCR-bench/*
-olmOCR-bench-0825/
-olmOCR-bench-snapshot-082225/
 table_data*/
 /synth*/
 dolma_samples/*
@@ -29,6 +27,7 @@ filtered_items_prefilter/
 augraphy_cache/
 /*.html
 html_templates*/
+olmocr-synthmix*/
 scoreelo.csv
 debug.log
 birrpipeline-debug.log
