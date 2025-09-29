@@ -210,6 +210,29 @@ The served model name should be `olmocr`. An example vLLM launch command would b
 vllm serve allenai/olmOCR-7B-0825-FP8 --served-model-name olmocr --max-model-len 16384
 ```
 
+#### Run olmOCR with the DeepInfra server endpoint:
+Signup at [DeepInfra](https://deepinfra.com/) and get your API key from the DeepInfra dashboard.
+Store the API key as an environment variable.
+```bash
+export DEEPINFRA_API_KEY="your-api-key-here"
+```
+
+```bash
+python -m olmocr.pipeline ./localworkspace \
+  --server https://api.deepinfra.com/v1/openai \
+  --api_key $DEEPINFRA_API_KEY \
+  --pages_per_group 100 \
+  --model allenai/olmOCR-7B-0725-FP8 \
+  --markdown \
+  --pdfs path/to/your/*.pdf
+```
+- `--server`: DeepInfra's OpenAI-compatible endpoint: `https://api.deepinfra.com/v1/openai`
+- `--api_key`: Your DeepInfra API key
+- `--pages_per_group`: You may want a smaller number of pages per group as many external provides have lower concurrent request limits
+- `--model`: The model identifier on DeepInfra: `allenai/olmOCR-7B-0725-FP8`
+- Other arguments work the same as with local inference
+
+
 #### Viewing Results
 
 The `./localworkspace/` workspace folder will then have both [Dolma](https://github.com/allenai/dolma) and markdown files (if using `--markdown`).
@@ -249,27 +272,6 @@ For example:
 ```bash
 python -m olmocr.pipeline s3://my_s3_bucket/pdfworkspaces/exampleworkspace --pdfs s3://my_s3_bucket/jakep/gnarly_pdfs/*.pdf --beaker --beaker_gpus 4
 ```
-### Using DeepInfra
-Signup at [DeepInfra](https://deepinfra.com/) and get your API key from the DeepInfra dashboard.
-Store the API key as an environment variable.
-```bash
-export DEEPINFRA_API_KEY="your-api-key-here"
-```
-#### Run olmOCR with the DeepInfra server endpoint:
-```bash
-python -m olmocr.pipeline ./localworkspace \
-  --server https://api.deepinfra.com/v1/openai \
-  --api_key $DEEPINFRA_API_KEY \
-  --pages_per_group 100 \
-  --model allenai/olmOCR-7B-0725-FP8 \
-  --markdown \
-  --pdfs path/to/your/*.pdf
-```
-- `--server`: DeepInfra's OpenAI-compatible endpoint: `https://api.deepinfra.com/v1/openai`
-- `--api_key`: Your DeepInfra API key
-- `--pages_per_group`: You may want a smaller number of pages per group as many external provides have lower concurrent request limits
-- `--model`: The model identifier on DeepInfra: `allenai/olmOCR-7B-0725-FP8`
-- Other arguments work the same as with local inference
 
 
 ### Using Docker
