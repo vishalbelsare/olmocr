@@ -31,7 +31,8 @@ RUN DIST_PY=$(ls /usr/bin/python3.[0-9]* | sort -V | head -n1) && \
         fonts-crosextra-carlito \
         gsfonts \
         lcdf-typetools \
-        ttf-mscorefonts-installer && \
+        ttf-mscorefonts-installer \
+        git git-lfs curl wget unzip && \
     # ---- Restore the original / custom Python alternative ----------------- \
     echo "Restoring python3 alternative to ${ORIGINAL_PY}" && \
     update-alternatives --install /usr/bin/python3 python3 ${ORIGINAL_PY} 1 && \
